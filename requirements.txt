@@ -1,0 +1,2 @@
+# Health-Aware Task Manager
+Django>=4.2,<6

@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Health-Aware Task Manager{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0f1419;
+      --surface: #1a2332;
+      --surface-hover: #243044;
+      --border: #2d3a4f;
+      --text: #e6edf3;
+      --text-muted: #8b9cb3;
+      --accent: #3fb950;
+      --accent-dim: #238636;
+      --break-physical: #58a6ff;
+      --break-mental: #a371f7;
+      --break-meal: #f0883e;
+      --break-hydration: #39c5cf;
+      --priority-high: #f85149;
+      --priority-medium: #d29922;
+      --priority-low: #3fb950;
+      --radius: 10px;
+      --shadow: 0 4px 20px rgba(0,0,0,0.3);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'DM Sans', system-ui, sans-serif;
+      font-size: 15px;
+      line-height: 1.5;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .wrap {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 24px 20px;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 28px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    .logo {
+      font-weight: 700;
+      font-size: 1.25rem;
+      color: var(--text);
+    }
+    .logo span { color: var(--accent); }
+    nav {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 10px 16px;
+      border-radius: var(--radius);
+      font-weight: 500;
+      font-family: inherit;
+      font-size: 14px;
+      cursor: pointer;
+      border: none;
+      transition: background 0.15s, color 0.15s;
+    }
+    .btn-primary {
+      background: var(--accent);
+      color: var(--bg);
+    }
+    .btn-primary:hover { background: #56d364; }
+    .btn-secondary {
+      background: var(--surface);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn-secondary:hover { background: var(--surface-hover); }
+    .btn-danger {
+      background: rgba(248,81,73,0.2);
+      color: var(--priority-high);
+    }
+    .btn-danger:hover { background: rgba(248,81,73,0.35); }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+      margin-bottom: 16px;
+      box-shadow: var(--shadow);
+    }
+    .card h2 {
+      margin: 0 0 12px 0;
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .form-input, .form-select, .form-textarea {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+      font-family: inherit;
+      font-size: 14px;
+    }
+    .form-input:focus, .form-select:focus, .form-textarea:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+    .form-textarea { resize: vertical; min-height: 60px; }
+    label { display: block; margin-bottom: 4px; font-weight: 500; color: var(--text-muted); font-size: 13px; }
+    .form-group { margin-bottom: 14px; }
+    .messages { margin-bottom: 16px; }
+    .message {
+      padding: 12px 16px;
+      border-radius: var(--radius);
+      margin-bottom: 8px;
+    }
+    .message.success { background: rgba(63,185,80,0.15); color: var(--accent); }
+    .message.error { background: rgba(248,81,73,0.15); color: var(--priority-high); }
+    .mono { font-family: 'JetBrains Mono', monospace; }
+
+    /* Custom calendar modal */
+    .date-picker-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.6);
+      backdrop-filter: blur(4px);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      animation: datePickerFadeIn 0.2s ease;
+    }
+    .date-picker-overlay.is-open { display: flex; }
+    @keyframes datePickerFadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+    .date-picker-modal {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,255,255,0.04);
+      padding: 20px;
+      min-width: 300px;
+      max-width: 100%;
+      animation: datePickerSlideIn 0.25s ease;
+    }
+    @keyframes datePickerSlideIn {
+      from { opacity: 0; transform: scale(0.96) translateY(-8px); }
+      to { opacity: 1; transform: scale(1) translateY(0); }
+    }
+
+    .date-picker-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+      gap: 12px;
+    }
+    .date-picker-title {
+      font-weight: 600;
+      font-size: 1rem;
+      color: var(--text);
+      margin: 0;
+    }
+    .date-picker-nav {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .date-picker-nav-btn {
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      line-height: 1;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .date-picker-nav-btn:hover {
+      background: var(--surface-hover);
+      border-color: var(--text-muted);
+    }
+    .date-picker-month-year {
+      font-weight: 500;
+      color: var(--text);
+      min-width: 140px;
+      text-align: center;
+      font-size: 14px;
+    }
+
+    .date-picker-weekdays {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 4px;
+      margin-bottom: 8px;
+    }
+    .date-picker-weekday {
+      text-align: center;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--text-muted);
+    }
+    .date-picker-days {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 4px;
+    }
+    .date-picker-day {
+      aspect-ratio: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      font-weight: 700;
+      color: #000;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+    }
+    .date-picker-day:hover:not(.is-other):not(.is-selected) {
+      background: var(--surface-hover);
+    }
+    .date-picker-day.is-other { color: var(--text-muted); opacity: 0.6; }
+    .date-picker-day.is-selected {
+      background: var(--accent);
+      color: var(--bg);
+    }
+    .date-picker-day.is-today:not(.is-selected) {
+      box-shadow: 0 0 0 2px var(--accent);
+      color: var(--accent);
+    }
+    .date-picker-day.is-disabled { opacity: 0.35; cursor: not-allowed; }
+    input.custom-date-picker { cursor: pointer; }
+  </style>
+  {% block extra_css %}{% endblock %}
+</head>
+<body>
+  <!-- Custom calendar modal (shared by all date pickers) -->
+  <div id="date-picker-overlay" class="date-picker-overlay" aria-hidden="true">
+    <div class="date-picker-modal" role="dialog" aria-modal="true" aria-label="Pick a date">
+      <div class="date-picker-header">
+        <h3 class="date-picker-title">Pick a date</h3>
+        <div class="date-picker-nav">
+          <button type="button" class="date-picker-nav-btn" id="date-picker-prev" aria-label="Previous month">‹</button>
+          <span class="date-picker-month-year" id="date-picker-month-year"></span>
+          <button type="button" class="date-picker-nav-btn" id="date-picker-next" aria-label="Next month">›</button>
+        </div>
+      </div>
+      <div class="date-picker-weekdays">
+        <span class="date-picker-weekday">Mon</span>
+        <span class="date-picker-weekday">Tue</span>
+        <span class="date-picker-weekday">Wed</span>
+        <span class="date-picker-weekday">Thu</span>
+        <span class="date-picker-weekday">Fri</span>
+        <span class="date-picker-weekday">Sat</span>
+        <span class="date-picker-weekday">Sun</span>
+      </div>
+      <div id="date-picker-days" class="date-picker-days"></div>
+    </div>
+  </div>
+
+  <div class="wrap">
+    <header>
+      <a href="{% url 'tasks:home' %}" class="logo">Health<span>-Aware</span> Task Manager</a>
+      <nav>
+        <a href="{% url 'tasks:home' %}" class="btn btn-secondary">Schedule</a>
+        <a href="{% url 'tasks:task_add' %}" class="btn btn-primary">+ Add task</a>
+        <a href="{% url 'tasks:settings' %}" class="btn btn-secondary">Settings</a>
+      </nav>
+    </header>
+
+    {% if messages %}
+    <div class="messages">
+      {% for message in messages %}
+      <div class="message {{ message.tags }}">{{ message }}</div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% block content %}{% endblock %}
+  </div>
+  <script>
+  (function() {
+    var overlay = document.getElementById('date-picker-overlay');
+    var monthYearEl = document.getElementById('date-picker-month-year');
+    var daysEl = document.getElementById('date-picker-days');
+    var prevBtn = document.getElementById('date-picker-prev');
+    var nextBtn = document.getElementById('date-picker-next');
+    var currentInput = null;
+    var viewDate = new Date();
+
+    var monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+    function openPicker(input) {
+      currentInput = input;
+      var val = (input && input.value) ? input.value.trim() : '';
+      if (val) {
+        var parts = val.split('-').map(Number);
+        if (parts.length === 3) viewDate = new Date(parts[0], parts[1] - 1, 1);
+        else viewDate = new Date();
+      } else viewDate = new Date();
+      renderCalendar();
+      overlay.classList.add('is-open');
+      overlay.setAttribute('aria-hidden', 'false');
+    }
+
+    function closePicker() {
+      overlay.classList.remove('is-open');
+      overlay.setAttribute('aria-hidden', 'true');
+      currentInput = null;
+    }
+
+    function setInputValue(y, m, d) {
+      if (!currentInput) return;
+      var mm = String(m + 1).padStart(2, '0');
+      var dd = String(d).padStart(2, '0');
+      currentInput.value = y + '-' + mm + '-' + dd;
+      currentInput.dispatchEvent(new Event('change', { bubbles: true }));
+      closePicker();
+    }
+
+    function renderCalendar() {
+      var y = viewDate.getFullYear();
+      var m = viewDate.getMonth();
+      monthYearEl.textContent = monthNames[m] + ' ' + y;
+
+      var first = new Date(y, m, 1);
+      var last = new Date(y, m + 1, 0);
+      var startPad = (first.getDay() + 6) % 7;
+      var totalDays = last.getDate();
+      var prevMonthDays = new Date(y, m, 0).getDate();
+
+      var today = new Date();
+      var selectedY = null, selectedM = null, selectedD = null;
+      if (currentInput && currentInput.value) {
+        var p = currentInput.value.split('-').map(Number);
+        if (p.length === 3) { selectedY = p[0]; selectedM = p[1] - 1; selectedD = p[2]; }
+      }
+
+      daysEl.innerHTML = '';
+      for (var i = 0; i < startPad; i++) {
+        var d = prevMonthDays - startPad + 1 + i;
+        var cell = document.createElement('button');
+        cell.type = 'button';
+        cell.className = 'date-picker-day is-other';
+        cell.textContent = d;
+        cell.dataset.y = m === 0 ? y - 1 : y;
+        cell.dataset.m = m === 0 ? 11 : m - 1;
+        cell.dataset.d = d;
+        cell.addEventListener('click', function() {
+          setInputValue(Number(this.dataset.y), Number(this.dataset.m), Number(this.dataset.d));
+        });
+        daysEl.appendChild(cell);
+      }
+      for (var d = 1; d <= totalDays; d++) {
+        var cell = document.createElement('button');
+        cell.type = 'button';
+        cell.className = 'date-picker-day';
+        if (y === today.getFullYear() && m === today.getMonth() && d === today.getDate()) cell.classList.add('is-today');
+        if (selectedY === y && selectedM === m && selectedD === d) cell.classList.add('is-selected');
+        cell.textContent = d;
+        cell.dataset.y = y;
+        cell.dataset.m = m;
+        cell.dataset.d = d;
+        cell.addEventListener('click', function() {
+          setInputValue(Number(this.dataset.y), Number(this.dataset.m), Number(this.dataset.d));
+        });
+        daysEl.appendChild(cell);
+      }
+      var rest = 42 - (startPad + totalDays);
+      if (rest < 0) rest += 7;
+      for (var i = 1; i <= rest; i++) {
+        var cell = document.createElement('button');
+        cell.type = 'button';
+        cell.className = 'date-picker-day is-other';
+        cell.textContent = i;
+        cell.dataset.y = y;
+        cell.dataset.m = m + 1;
+        cell.dataset.d = i;
+        if (m === 11) { cell.dataset.m = 0; cell.dataset.y = y + 1; }
+        cell.addEventListener('click', function() {
+          setInputValue(Number(this.dataset.y), Number(this.dataset.m), Number(this.dataset.d));
+        });
+        daysEl.appendChild(cell);
+      }
+    }
+
+    overlay.addEventListener('click', function(e) {
+      if (e.target === overlay) closePicker();
+    });
+    prevBtn.addEventListener('click', function() {
+      viewDate.setMonth(viewDate.getMonth() - 1);
+      renderCalendar();
+    });
+    nextBtn.addEventListener('click', function() {
+      viewDate.setMonth(viewDate.getMonth() + 1);
+      renderCalendar();
+    });
+
+    document.querySelectorAll('.custom-date-picker').forEach(function(input) {
+      input.addEventListener('focus', function(e) { e.preventDefault(); openPicker(this); });
+      input.addEventListener('click', function(e) { e.preventDefault(); openPicker(this); });
+    });
+  })();
+  </script>
+  {% block extra_js %}{% endblock %}
+</body>
+</html>

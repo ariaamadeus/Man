@@ -1,0 +1,91 @@
+{% extends 'base.html' %}
+
+{% block title %}Schedule – Health-Aware Task Manager{% endblock %}
+
+{% block extra_css %}
+<style>
+  .break-physical { background: rgba(88,166,255,0.2); color: var(--break-physical); }
+  .break-mental { background: rgba(163,113,247,0.2); color: var(--break-mental); }
+  .break-hydration { background: rgba(57,197,207,0.2); color: var(--break-hydration); }
+  .break-meal { background: rgba(240,136,62,0.2); color: var(--break-meal); }
+  .priority-dot.priority-high { color: var(--priority-high); }
+  .priority-dot.priority-medium { color: var(--priority-medium); }
+  .priority-dot.priority-low { color: var(--priority-low); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="card">
+  <h2>Pick a date</h2>
+  <form method="get" action="{% url 'tasks:home' %}" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+    <input type="date" name="date" value="{{ schedule_date|date:'Y-m-d' }}" class="form-input custom-date-picker" style="width:auto;" readonly>
+    <button type="submit" class="btn btn-primary">Update schedule</button>
+  </form>
+</div>
+
+{% if schedule_items %}
+<div class="card">
+  <h2>Your health-aware schedule for {{ schedule_date }}</h2>
+  <ul class="schedule-list" style="list-style:none;padding:0;margin:0;">
+    {% for item in schedule_items %}
+    <li class="schedule-item" style="display:flex;align-items:flex-start;gap:12px;padding:12px 0;border-bottom:1px solid var(--border);">
+      <span class="mono" style="flex-shrink:0;width:100px;color:var(--text-muted);">
+        {{ item.start_time|time:"H:i" }} – {{ item.end_time|time:"H:i" }}
+      </span>
+      <span style="flex-shrink:0;width:44px;text-align:center;" title="{{ item.duration_minutes }} min">({{ item.duration_minutes }}m)</span>
+      {% if item.is_break %}
+        <span class="break-badge break-{{ item.break_type }}" style="padding:4px 10px;border-radius:6px;font-size:13px;font-weight:500;">
+          {% if item.break_type == 'physical' %}🏃 Break{% endif %}
+          {% if item.break_type == 'mental' %}🧘 Mental break{% endif %}
+          {% if item.break_type == 'hydration' %}💧 Hydration{% endif %}
+          {% if item.break_type == 'meal' %}🍽️ Lunch{% endif %}
+        </span>
+        <span style="color:var(--text-muted);">{{ item.break_description }}</span>
+      {% else %}
+        <span class="priority-dot priority-{{ item.task_priority }}">●</span>
+        <span><strong>{{ item.task_name }}</strong>{% if item.task_description %} – {{ item.task_description }}{% endif %}</span>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+
+{% if health_summary %}
+<div class="card">
+  <h2>Health summary</h2>
+  <p>Total breaks: <strong>{{ health_summary.total_breaks }}</strong> · Total break time: <strong>{{ health_summary.total_break_time_minutes }} min</strong></p>
+  <p style="color:var(--text-muted);font-size:14px;">Take breaks seriously — move, hydrate, and rest. Your health comes first.</p>
+</div>
+{% endif %}
+{% else %}
+<div class="card">
+  <p style="color:var(--text-muted);">No tasks yet, or all tasks are completed. <a href="{% url 'tasks:task_add' %}">Add a task</a> to generate a health-aware schedule.</p>
+</div>
+{% endif %}
+
+<div class="card">
+  <h2>Your tasks</h2>
+  {% if tasks %}
+  <ul style="list-style:none;padding:0;margin:0;">
+    {% for task in tasks %}
+    <li style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border);">
+      <form action="{% url 'tasks:task_toggle_done' task.pk %}" method="post" style="margin:0;">{% csrf_token %}
+        <button type="submit" class="btn btn-secondary" style="padding:6px 10px;" title="Toggle done">
+          {% if task.completed %}✓ Done{% else %}○ Todo{% endif %}
+        </button>
+      </form>
+      <span class="priority-dot priority-{{ task.priority }}">●</span>
+      <span style="{% if task.completed %}opacity:0.6;text-decoration:line-through;{% endif %}">{{ task.name }}</span>
+      <span class="mono" style="color:var(--text-muted);font-size:13px;">{{ task.duration_minutes }}m · {{ task.get_task_type_display }}</span>
+      <a href="{% url 'tasks:task_edit' task.pk %}" class="btn btn-secondary" style="padding:6px 10px;">Edit</a>
+      <form action="{% url 'tasks:task_delete' task.pk %}" method="post" style="margin:0;" onsubmit="return confirm('Delete this task?');">{% csrf_token %}
+        <button type="submit" class="btn btn-danger" style="padding:6px 10px;">Delete</button>
+      </form>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p style="color:var(--text-muted);">No tasks. <a href="{% url 'tasks:task_add' %}">Add your first task</a>.</p>
+  {% endif %}
+</div>
+{% endblock %}
