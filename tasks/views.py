@@ -1,12 +1,14 @@
 from datetime import date
 from django.shortcuts import render, redirect, get_object_or_404
 from django.views.decorators.http import require_http_methods, require_POST
+from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from .models import Task, ScheduleSettings
 from .forms import TaskForm, ScheduleSettingsForm
 from .services import build_schedule
 
 
+@login_required
 def home(request):
     tasks = Task.objects.all()
     settings = ScheduleSettings.get_settings()
@@ -35,6 +37,7 @@ def home(request):
     })
 
 
+@login_required
 def task_add(request):
     if request.method == 'POST':
         form = TaskForm(request.POST)
@@ -47,6 +50,7 @@ def task_add(request):
     return render(request, 'tasks/task_form.html', {'form': form, 'title': 'Add task'})
 
 
+@login_required
 def task_edit(request, pk):
     task = get_object_or_404(Task, pk=pk)
     if request.method == 'POST':
@@ -60,6 +64,7 @@ def task_edit(request, pk):
     return render(request, 'tasks/task_form.html', {'form': form, 'title': 'Edit task', 'task': task})
 
 
+@login_required
 @require_POST
 def task_delete(request, pk):
     task = get_object_or_404(Task, pk=pk)
@@ -68,6 +73,7 @@ def task_delete(request, pk):
     return redirect('tasks:home')
 
 
+@login_required
 @require_POST
 def task_toggle_done(request, pk):
     task = get_object_or_404(Task, pk=pk)
@@ -77,6 +83,7 @@ def task_toggle_done(request, pk):
     return redirect('tasks:home')
 
 
+@login_required
 def settings_view(request):
     settings = ScheduleSettings.get_settings()
     if request.method == 'POST':
