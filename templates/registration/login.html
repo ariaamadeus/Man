@@ -1,0 +1,25 @@
+{% extends 'base.html' %}
+
+{% block title %}Log in – Health-Aware Task Manager{% endblock %}
+
+{% block content %}
+<div class="login-card card" style="max-width: 380px; margin: 40px auto;">
+  <h2>Log in</h2>
+  {% if form.errors %}
+  <p class="message error" style="margin-bottom: 16px;">Invalid username or password. Please try again.</p>
+  {% endif %}
+  <form method="post" action="{% url 'login' %}">
+    {% csrf_token %}
+    <div class="form-group">
+      <label for="id_username">Username</label>
+      <input type="text" name="username" id="id_username" class="form-input" required autofocus autocomplete="username">
+    </div>
+    <div class="form-group">
+      <label for="id_password">Password</label>
+      <input type="password" name="password" id="id_password" class="form-input" required autocomplete="current-password">
+    </div>
+    <input type="hidden" name="next" value="{{ next }}">
+    <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 8px;">Log in</button>
+  </form>
+</div>
+{% endblock %}

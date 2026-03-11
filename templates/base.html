@@ -291,6 +291,11 @@
         <a href="{% url 'tasks:home' %}" class="btn btn-secondary">Schedule</a>
         <a href="{% url 'tasks:task_add' %}" class="btn btn-primary">+ Add task</a>
         <a href="{% url 'tasks:settings' %}" class="btn btn-secondary">Settings</a>
+        {% if user.is_authenticated %}
+        <a href="{% url 'logout' %}" class="btn btn-secondary">Log out</a>
+        {% else %}
+        <a href="{% url 'login' %}" class="btn btn-secondary">Log in</a>
+        {% endif %}
       </nav>
     </header>
 
