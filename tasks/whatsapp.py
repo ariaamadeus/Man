@@ -24,15 +24,24 @@ def publish_mqtt_message(text: str) -> bool:
     port = getattr(settings, "MQTT_PORT", 1883)
     username = getattr(settings, "MQTT_USERNAME", "") or ""
     password = getattr(settings, "MQTT_PASSWORD", "") or ""
+
     try:
         client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
         if username:
             client.username_pw_set(username, password or None)
+        logger.info("MQTT publish attempt broker=%s port=%s topic=%s", broker, port, topic)
         client.connect(broker, port=port, keepalive=60)
+        client.loop_start()
         result = client.publish(topic, text, qos=1)
+        # QoS1 needs the network loop to complete the handshake.
+        result.wait_for_publish(timeout=10)
+        client.loop_stop()
         client.disconnect()
         if result.rc != mqtt.MQTT_ERR_SUCCESS:
             logger.warning("MQTT publish returned rc=%s", result.rc)
+            return False
+        if not result.is_published():
+            logger.warning("MQTT publish did not complete before timeout")
             return False
         logger.info("MQTT message published to %s", topic)
         return True
