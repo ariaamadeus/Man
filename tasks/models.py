@@ -52,3 +52,20 @@ class ScheduleSettings(models.Model):
         if obj is None:
             obj = cls.objects.create()
         return obj
+
+
+class WhatsAppNotificationState(models.Model):
+    """Stores last notified schedule event so we only send when the event changes."""
+    last_event_key = models.CharField(max_length=256, blank=True)
+    last_sent_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name_plural = "WhatsApp notification state"
+
+    @classmethod
+    def get_state(cls):
+        obj = cls.objects.first()
+        if obj is None:
+            obj = cls.objects.create()
+        return obj

@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from django.shortcuts import render, redirect, get_object_or_404
 from django.views.decorators.http import require_http_methods, require_POST
 from django.contrib.auth.decorators import login_required
@@ -28,12 +28,15 @@ def home(request):
             tasks, settings, schedule_date=schedule_date
         )
 
+    now = datetime.now()
     return render(request, 'tasks/home.html', {
         'tasks': tasks,
         'schedule_items': schedule_items,
         'health_summary': health_summary,
         'schedule_date': schedule_date,
         'settings': settings,
+        'now': now,
+        'today': date.today(),
     })
 
 
