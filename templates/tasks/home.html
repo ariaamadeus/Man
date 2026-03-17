@@ -11,15 +11,20 @@
   .priority-dot.priority-high { color: var(--priority-high); }
   .priority-dot.priority-medium { color: var(--priority-medium); }
   .priority-dot.priority-low { color: var(--priority-low); }
+  .schedule-item-current { background: rgba(63, 185, 80, 0.12); border-radius: 8px; margin: 0 -8px; padding: 12px 8px !important; border-left: 3px solid var(--accent); }
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="card">
-  <h2>Pick a date</h2>
+  <h2>Current schedule</h2>
+  <p style="color:var(--text-muted);margin-bottom:12px;">Realtime: <strong id="live-time">{{ now|time:"H:i:s" }}</strong> · Viewing schedule for <strong>{% if schedule_date == today %}today{% else %}{{ schedule_date|date:"l j F Y" }}{% endif %}</strong></p>
   <form method="get" action="{% url 'tasks:home' %}" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-    <input type="date" name="date" value="{{ schedule_date|date:'Y-m-d' }}" class="form-input custom-date-picker" style="width:auto;" readonly>
+    <input type="date" name="date" value="{{ schedule_date|date:'Y-m-d' }}" class="form-input custom-date-picker" style="width:auto;">
     <button type="submit" class="btn btn-primary">Update schedule</button>
+    {% if schedule_date != today %}
+    <a href="{% url 'tasks:home' %}" class="btn btn-secondary">Show today</a>
+    {% endif %}
   </form>
 </div>
 
@@ -28,9 +33,10 @@
   <h2>Your health-aware schedule for {{ schedule_date }}</h2>
   <ul class="schedule-list" style="list-style:none;padding:0;margin:0;">
     {% for item in schedule_items %}
-    <li class="schedule-item" style="display:flex;align-items:flex-start;gap:12px;padding:12px 0;border-bottom:1px solid var(--border);">
+    <li class="schedule-item {% if schedule_date == today and now >= item.start_time and now <= item.end_time %}schedule-item-current{% endif %}" style="display:flex;align-items:flex-start;gap:12px;padding:12px 0;border-bottom:1px solid var(--border);">
       <span class="mono" style="flex-shrink:0;width:100px;color:var(--text-muted);">
         {{ item.start_time|time:"H:i" }} – {{ item.end_time|time:"H:i" }}
+        {% if schedule_date == today and now >= item.start_time and now <= item.end_time %}<span class="now-badge" style="display:block;font-size:11px;color:var(--accent);">● Now</span>{% endif %}
       </span>
       <span style="flex-shrink:0;width:44px;text-align:center;" title="{{ item.duration_minutes }} min">({{ item.duration_minutes }}m)</span>
       {% if item.is_break %}
@@ -88,4 +94,18 @@
   <p style="color:var(--text-muted);">No tasks. <a href="{% url 'tasks:task_add' %}">Add your first task</a>.</p>
   {% endif %}
 </div>
+
+<script>
+(function () {
+  var el = document.getElementById('live-time');
+  if (!el) return;
+  function pad(n) { return (n < 10 ? '0' : '') + n; }
+  function showTime() {
+    var d = new Date();
+    el.textContent = pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+  }
+  setInterval(showTime, 1000);
+  showTime();
+})();
+</script>
 {% endblock %}

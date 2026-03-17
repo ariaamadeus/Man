@@ -5,7 +5,10 @@ Django settings for Health-Aware Task Manager.
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 BASE_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(BASE_DIR / ".env")
 
 SECRET_KEY = os.environ.get('DJANGO_SECRET_KEY', 'dev-secret-change-in-production')
 
@@ -84,3 +87,10 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 LOGIN_URL = '/login/'
 LOGIN_REDIRECT_URL = '/'
+
+# MQTT (optional: set in .env to enable schedule event notifications)
+MQTT_BROKER = os.environ.get("MQTT_BROKER", "localhost").strip()
+MQTT_PORT = int(os.environ.get("MQTT_PORT", "1883"))
+MQTT_TOPIC = os.environ.get("MQTT_TOPIC", "man/schedule/current").strip()
+MQTT_USERNAME = os.environ.get("MQTT_USERNAME", "").strip()
+MQTT_PASSWORD = os.environ.get("MQTT_PASSWORD", "").strip()
