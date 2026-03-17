@@ -58,6 +58,8 @@ class WhatsAppNotificationState(models.Model):
     """Stores last notified schedule event so we only send when the event changes."""
     last_event_key = models.CharField(max_length=256, blank=True)
     last_sent_at = models.DateTimeField(null=True, blank=True)
+    last_mqtt_ok = models.BooleanField(null=True, blank=True, help_text="True=last publish succeeded, False=failed, null=never tried")
+    last_mqtt_checked_at = models.DateTimeField(null=True, blank=True, help_text="When we last attempted MQTT publish")
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

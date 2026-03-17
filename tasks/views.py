@@ -6,6 +6,7 @@ from django.contrib import messages
 from .models import Task, ScheduleSettings
 from .forms import TaskForm, ScheduleSettingsForm
 from .services import build_schedule
+from .whatsapp import get_mqtt_status
 
 
 @login_required
@@ -97,4 +98,7 @@ def settings_view(request):
             return redirect('tasks:home')
     else:
         form = ScheduleSettingsForm(instance=settings)
-    return render(request, 'tasks/settings.html', {'form': form})
+    return render(request, 'tasks/settings.html', {
+        'form': form,
+        'mqtt_status': get_mqtt_status(),
+    })

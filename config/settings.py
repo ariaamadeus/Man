@@ -100,3 +100,7 @@ MQTT_PASSWORD = os.environ.get("MQTT_PASSWORD", "").strip()
 _default_autostart = "1" if DEBUG else "0"
 MQTT_NOTIFIER_AUTOSTART = os.environ.get("MQTT_NOTIFIER_AUTOSTART", _default_autostart).strip() == "1"
 MQTT_NOTIFIER_INTERVAL_SECONDS = int(os.environ.get("MQTT_NOTIFIER_INTERVAL_SECONDS", "60").strip() or "60")
+
+# Publish a one-time "initialized/online" message at server startup.
+MQTT_PUBLISH_STARTUP_STATUS = os.environ.get("MQTT_PUBLISH_STARTUP_STATUS", "1").strip() == "1"
+MQTT_STARTUP_STATUS_TOPIC = os.environ.get("MQTT_STARTUP_STATUS_TOPIC", "").strip()

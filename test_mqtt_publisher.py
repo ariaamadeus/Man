@@ -82,17 +82,21 @@ def main() -> int:
         return 2
 
     try:
+        # QoS1/2 needs the network loop to process ACKs.
+        client.loop_start()
         info = client.publish(topic, payload, qos=qos, retain=args.retain)
         info.wait_for_publish(timeout=args.timeout)
     except Exception as e:
         print(f"\nERROR: publish failed: {e}", file=sys.stderr)
         try:
+            client.loop_stop()
             client.disconnect()
         except Exception:
             pass
         return 3
 
     try:
+        client.loop_stop()
         client.disconnect()
     except Exception:
         pass

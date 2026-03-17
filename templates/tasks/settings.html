@@ -23,4 +23,24 @@
     </div>
   </form>
 </div>
+
+<div class="card">
+  <h2>MQTT connection status</h2>
+  {% if mqtt_status.configured %}
+  <p style="color:var(--text-muted);margin-bottom:12px;">Schedule events are published to MQTT when the current event changes. Broker: <span class="mono">{{ mqtt_status.broker }}</span>, topic: <span class="mono">{{ mqtt_status.topic }}</span>.</p>
+  <p style="margin:0;">
+    {% if mqtt_status.last_checked_at %}
+      {% if mqtt_status.last_ok %}
+        <span style="color:var(--accent);">● Connected</span> — last publish succeeded at {{ mqtt_status.last_checked_at|date:"H:i" }} on {{ mqtt_status.last_checked_at|date:"M j, Y" }}.
+      {% else %}
+        <span style="color:var(--priority-high);">● Disconnected</span> — last publish failed at {{ mqtt_status.last_checked_at|date:"H:i" }} on {{ mqtt_status.last_checked_at|date:"M j, Y" }}.
+      {% endif %}
+    {% else %}
+      <span style="color:var(--text-muted);">● Unknown</span> — no publish attempt yet. Status will update when the notifier runs and the current schedule event changes.
+    {% endif %}
+  </p>
+  {% else %}
+  <p style="color:var(--text-muted);margin:0;">MQTT is not configured. Set <span class="mono">MQTT_BROKER</span> and <span class="mono">MQTT_TOPIC</span> in your <span class="mono">.env</span> to enable schedule event notifications.</p>
+  {% endif %}
+</div>
 {% endblock %}
