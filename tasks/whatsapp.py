@@ -4,52 +4,49 @@ Configure MQTT_BROKER, MQTT_TOPIC (and optionally MQTT_USERNAME, MQTT_PASSWORD) 
 """
 import logging
 from datetime import date, datetime
-import threading
 
-import paho.mqtt.client as mqtt
+import requests
 from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
 
-def publish_mqtt_message(text: str, *, topic_override: str | None = None, retain: bool = True) -> bool:
+def _adafruit_http_publish(value: str, *, topic_override: str | None = None, timeout_seconds: int = 10) -> bool:
     """
-    Publish a message to the configured MQTT topic.
-    Returns True if publish was successful.
-    """
-    broker = getattr(settings, "MQTT_BROKER", "") or ""
-    default_topic = getattr(settings, "MQTT_TOPIC", "") or ""
-    topic = (topic_override or default_topic).strip()
-    if not broker or not topic:
-        logger.warning("MQTT not configured: set MQTT_BROKER and MQTT_TOPIC in .env")
-        return False
-    port = getattr(settings, "MQTT_PORT", 1883)
-    username = getattr(settings, "MQTT_USERNAME", "") or ""
-    password = getattr(settings, "MQTT_PASSWORD", "") or ""
+    Publish to Adafruit IO via HTTPS (works on hosts that block MQTT ports, like PythonAnywhere).
 
-    try:
-        client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
-        if username:
-            client.username_pw_set(username, password or None)
-        logger.info("MQTT publish attempt broker=%s port=%s topic=%s", broker, port, topic)
-        client.connect(broker, port=port, keepalive=60)
-        client.loop_start()
-        result = client.publish(topic, text, qos=1, retain=retain)
-        # QoS1 needs the network loop to complete the handshake.
-        result.wait_for_publish(timeout=10)
-        client.loop_stop()
-        client.disconnect()
-        if result.rc != mqtt.MQTT_ERR_SUCCESS:
-            logger.warning("MQTT publish returned rc=%s", result.rc)
-            return False
-        if not result.is_published():
-            logger.warning("MQTT publish did not complete before timeout")
-            return False
-        logger.info("MQTT message published to %s", topic)
-        return True
-    except Exception as e:
-        logger.exception("MQTT publish failed: %s", e)
+    Matches:
+      curl -F "value=..." -H "X-AIO-Key: <key>" https://io.adafruit.com/api/v2/<topic>/data
+
+    Where <topic> is something like: "{username}/feeds/{feed_key}"
+    """
+    topic = (topic_override or getattr(settings, "MQTT_TOPIC", "") or "").strip()
+    aio_key = (getattr(settings, "MQTT_PASSWORD", "") or "").strip()
+    if not topic or not aio_key:
+        logger.warning("Adafruit IO not configured: set MQTT_TOPIC and MQTT_PASSWORD in .env")
         return False
+
+    url = f"https://io.adafruit.com/api/v2/{topic}/data"
+    try:
+        resp = requests.post(
+            url,
+            headers={"X-AIO-Key": aio_key},
+            files={"value": (None, value)},
+            timeout=timeout_seconds,
+        )
+        if 200 <= resp.status_code < 300:
+            return True
+        logger.warning("Adafruit IO publish failed status=%s body=%s", resp.status_code, resp.text[:300])
+        return False
+    except Exception as e:
+        logger.exception("Adafruit IO publish exception: %s", e)
+        return False
+
+
+# Backwards-compatible name used across the app; now publishes via HTTPS to Adafruit IO.
+def publish_mqtt_message(text: str, *, topic_override: str | None = None, retain: bool = True) -> bool:
+    _ = retain  # retain is not supported via Adafruit IO HTTP API
+    return _adafruit_http_publish(text, topic_override=topic_override)
 
 
 def publish_startup_status() -> bool:
@@ -67,82 +64,12 @@ def publish_startup_status() -> bool:
     return publish_mqtt_message("online", topic_override=topic, retain=True)
 
 
-def subscribe_once_and_confirm(topic: str, *, timeout_seconds: float = 3.0) -> bool:
-    """
-    Connect and subscribe to `topic`, then wait for at least one message.
-    Returns True if any message is received within timeout.
-    """
-    broker = getattr(settings, "MQTT_BROKER", "") or ""
-    if not broker or not topic:
-        return False
-    port = getattr(settings, "MQTT_PORT", 1883)
-    username = getattr(settings, "MQTT_USERNAME", "") or ""
-    password = getattr(settings, "MQTT_PASSWORD", "") or ""
-
-    got_message = threading.Event()
-
-    def on_message(_client, _userdata, _msg):
-        got_message.set()
-
-    try:
-        client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
-        client.on_message = on_message
-        if username:
-            client.username_pw_set(username, password or None)
-        client.connect(broker, port=port, keepalive=30)
-        client.subscribe(topic, qos=0)
-        client.loop_start()
-        ok = got_message.wait(timeout=timeout_seconds)
-        client.loop_stop()
-        client.disconnect()
-        return ok
-    except Exception as e:
-        logger.exception("MQTT subscribe confirm failed: %s", e)
-        return False
-
-
 def publish_startup_status_and_confirm() -> bool:
     """
-    Publish retained 'online' to the startup status topic and confirm connectivity by
-    subscribing and receiving a message on that same topic.
+    With HTTPS publishing we can't "subscribe to confirm" like MQTT.
+    We treat a successful HTTP 2xx response as "connected".
     """
-    topic = getattr(settings, "MQTT_STARTUP_STATUS_TOPIC", "") or ""
-    if not topic:
-        topic = getattr(settings, "MQTT_TOPIC", "") or ""
-    if not topic:
-        logger.warning("MQTT startup status not configured: set MQTT_TOPIC (or MQTT_STARTUP_STATUS_TOPIC)")
-        return False
-
-    broker = getattr(settings, "MQTT_BROKER", "") or ""
-    port = getattr(settings, "MQTT_PORT", 1883)
-    username = getattr(settings, "MQTT_USERNAME", "") or ""
-    password = getattr(settings, "MQTT_PASSWORD", "") or ""
-
-    got_message = threading.Event()
-
-    def on_message(_client, _userdata, _msg):
-        got_message.set()
-
-    try:
-        client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
-        client.on_message = on_message
-        if username:
-            client.username_pw_set(username, password or None)
-        client.connect(broker, port=port, keepalive=30)
-        client.subscribe(topic, qos=0)
-        client.loop_start()
-
-        # Publish after subscribing; confirm by receiving any message on the same topic.
-        pub = client.publish(topic, "online", qos=1, retain=True)
-        pub.wait_for_publish(timeout=5)
-        ok = got_message.wait(timeout=5.0)
-
-        client.loop_stop()
-        client.disconnect()
-        return ok
-    except Exception as e:
-        logger.exception("MQTT startup confirm failed: %s", e)
-        return False
+    return publish_startup_status()
 
 
 def get_mqtt_status():

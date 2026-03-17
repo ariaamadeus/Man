@@ -17,7 +17,7 @@ import sys
 import time
 from pathlib import Path
 
-import paho.mqtt.client as mqtt
+import requests
 from dotenv import load_dotenv
 
 
@@ -32,25 +32,17 @@ def _get_env_int(name: str, default: int) -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Publish a test MQTT message using .env settings.")
-    parser.add_argument("--broker", default=None, help="MQTT broker host (default: MQTT_BROKER or localhost)")
-    parser.add_argument("--port", type=int, default=None, help="MQTT broker port (default: MQTT_PORT or 1883)")
-    parser.add_argument("--topic", default=None, help="MQTT topic (default: MQTT_TOPIC or man/schedule/current)")
+    parser = argparse.ArgumentParser(description="Publish a test Adafruit IO message using .env settings.")
+    parser.add_argument("--topic", default=None, help="Adafruit IO topic path (default: MQTT_TOPIC, e.g. username/feeds/test)")
     parser.add_argument("--message", default=None, help="Message string to publish (default: JSON payload)")
-    parser.add_argument("--qos", type=int, default=None, choices=[0, 1, 2], help="QoS (default: 1)")
-    parser.add_argument("--retain", action="store_true", help="Publish with retain flag")
-    parser.add_argument("--timeout", type=int, default=10, help="Connect/publish timeout seconds (default: 10)")
+    parser.add_argument("--timeout", type=int, default=10, help="Request timeout seconds (default: 10)")
     args = parser.parse_args()
 
     repo_root = Path(__file__).resolve().parent
     load_dotenv(repo_root / ".env")
 
-    broker = (args.broker or os.environ.get("MQTT_BROKER", "").strip() or "localhost")
-    port = args.port if args.port is not None else _get_env_int("MQTT_PORT", 1883)
-    topic = (args.topic or os.environ.get("MQTT_TOPIC", "").strip() or "man/schedule/current")
-    username = os.environ.get("MQTT_USERNAME", "").strip()
-    password = os.environ.get("MQTT_PASSWORD", "").strip()
-    qos = args.qos if args.qos is not None else 1
+    topic = (args.topic or os.environ.get("MQTT_TOPIC", "").strip() or "")
+    aio_key = os.environ.get("MQTT_PASSWORD", "").strip()
 
     if args.message is not None:
         payload = args.message
@@ -64,50 +56,30 @@ def main() -> int:
             ensure_ascii=False,
         )
 
-    print(f"Broker:   {broker}:{port}")
-    print(f"Topic:    {topic}")
-    print(f"QoS:      {qos}  Retain: {args.retain}")
-    print(f"Auth:     {'yes' if username else 'no'}")
+    print("Transport: HTTPS (Adafruit IO)")
+    print(f"Topic:     {topic}")
+    print(f"Auth:      {'yes' if aio_key else 'no'}")
     print(f"Payload:  {payload}")
 
-    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
-    if username:
-        client.username_pw_set(username, password or None)
-
-    # Connect + publish (blocking) with a hard timeout.
-    try:
-        client.connect(broker, port=port, keepalive=60)
-    except Exception as e:
-        print(f"\nERROR: connect failed: {e}", file=sys.stderr)
+    if not topic or not aio_key:
+        print("\nERROR: missing MQTT_TOPIC or MQTT_PASSWORD in .env", file=sys.stderr)
         return 2
 
+    url = f"https://io.adafruit.com/api/v2/{topic}/data"
     try:
-        # QoS1/2 needs the network loop to process ACKs.
-        client.loop_start()
-        info = client.publish(topic, payload, qos=qos, retain=args.retain)
-        info.wait_for_publish(timeout=args.timeout)
+        resp = requests.post(
+            url,
+            headers={"X-AIO-Key": aio_key},
+            files={"value": (None, payload)},
+            timeout=args.timeout,
+        )
     except Exception as e:
-        print(f"\nERROR: publish failed: {e}", file=sys.stderr)
-        try:
-            client.loop_stop()
-            client.disconnect()
-        except Exception:
-            pass
+        print(f"\nERROR: request failed: {e}", file=sys.stderr)
         return 3
 
-    try:
-        client.loop_stop()
-        client.disconnect()
-    except Exception:
-        pass
-
-    if info.rc != mqtt.MQTT_ERR_SUCCESS:
-        print(f"\nERROR: publish returned rc={info.rc}", file=sys.stderr)
+    if not (200 <= resp.status_code < 300):
+        print(f"\nERROR: HTTP {resp.status_code}: {resp.text}", file=sys.stderr)
         return 4
-
-    if not info.is_published():
-        print("\nERROR: publish did not complete within timeout", file=sys.stderr)
-        return 5
 
     print("\nOK: published successfully")
     return 0
