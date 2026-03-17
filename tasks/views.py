@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from django.shortcuts import render, redirect, get_object_or_404
 from django.views.decorators.http import require_http_methods, require_POST
 from django.contrib.auth.decorators import login_required
@@ -13,14 +13,20 @@ from .whatsapp import get_mqtt_status
 def home(request):
     tasks = Task.objects.all()
     settings = ScheduleSettings.get_settings()
+
+    # Keep server-rendered "now" in sync with the UI "Realtime" clock (UTC+7).
+    # This also drives the "● Now" highlighting in the schedule list.
+    now = datetime.utcnow() + timedelta(hours=7)
+    today = now.date()
+
     schedule_date = request.GET.get('date')
     if schedule_date:
         try:
             schedule_date = date.fromisoformat(schedule_date)
         except ValueError:
-            schedule_date = date.today()
+            schedule_date = today
     else:
-        schedule_date = date.today()
+        schedule_date = today
 
     schedule_items = []
     health_summary = {}
@@ -29,7 +35,6 @@ def home(request):
             tasks, settings, schedule_date=schedule_date
         )
 
-    now = datetime.now()
     return render(request, 'tasks/home.html', {
         'tasks': tasks,
         'schedule_items': schedule_items,
@@ -37,7 +42,7 @@ def home(request):
         'schedule_date': schedule_date,
         'settings': settings,
         'now': now,
-        'today': date.today(),
+        'today': today,
     })
 
 
