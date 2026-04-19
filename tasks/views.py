@@ -11,8 +11,8 @@ from .whatsapp import get_mqtt_status
 
 @login_required
 def home(request):
-    tasks = Task.objects.all()
-    settings = ScheduleSettings.get_settings()
+    tasks = Task.objects.filter(user=request.user)
+    schedule_settings = ScheduleSettings.get_for_user(request.user)
 
     # Keep server-rendered "now" in sync with the UI "Realtime" clock (UTC+7).
     # This also drives the "● Now" highlighting in the schedule list.
@@ -32,7 +32,7 @@ def home(request):
     health_summary = {}
     if tasks.filter(completed=False).exists():
         schedule_items, health_summary = build_schedule(
-            tasks, settings, schedule_date=schedule_date
+            tasks, schedule_settings, schedule_date=schedule_date
         )
 
     return render(request, 'tasks/home.html', {
@@ -40,7 +40,7 @@ def home(request):
         'schedule_items': schedule_items,
         'health_summary': health_summary,
         'schedule_date': schedule_date,
-        'settings': settings,
+        'settings': schedule_settings,
         'now': now,
         'today': today,
     })
@@ -51,7 +51,9 @@ def task_add(request):
     if request.method == 'POST':
         form = TaskForm(request.POST)
         if form.is_valid():
-            form.save()
+            task = form.save(commit=False)
+            task.user = request.user
+            task.save()
             messages.success(request, 'Task added.')
             return redirect('tasks:home')
     else:
@@ -61,7 +63,7 @@ def task_add(request):
 
 @login_required
 def task_edit(request, pk):
-    task = get_object_or_404(Task, pk=pk)
+    task = get_object_or_404(Task, pk=pk, user=request.user)
     if request.method == 'POST':
         form = TaskForm(request.POST, instance=task)
         if form.is_valid():
@@ -76,7 +78,7 @@ def task_edit(request, pk):
 @login_required
 @require_POST
 def task_delete(request, pk):
-    task = get_object_or_404(Task, pk=pk)
+    task = get_object_or_404(Task, pk=pk, user=request.user)
     task.delete()
     messages.success(request, 'Task deleted.')
     return redirect('tasks:home')
@@ -85,7 +87,7 @@ def task_delete(request, pk):
 @login_required
 @require_POST
 def task_toggle_done(request, pk):
-    task = get_object_or_404(Task, pk=pk)
+    task = get_object_or_404(Task, pk=pk, user=request.user)
     task.completed = not task.completed
     task.save()
     messages.success(request, 'Task marked as done.' if task.completed else 'Task marked as not done.')
@@ -94,16 +96,16 @@ def task_toggle_done(request, pk):
 
 @login_required
 def settings_view(request):
-    settings = ScheduleSettings.get_settings()
+    schedule_settings = ScheduleSettings.get_for_user(request.user)
     if request.method == 'POST':
-        form = ScheduleSettingsForm(request.POST, instance=settings)
+        form = ScheduleSettingsForm(request.POST, instance=schedule_settings)
         if form.is_valid():
             form.save()
             messages.success(request, 'Settings saved.')
             return redirect('tasks:home')
     else:
-        form = ScheduleSettingsForm(instance=settings)
+        form = ScheduleSettingsForm(instance=schedule_settings)
     return render(request, 'tasks/settings.html', {
         'form': form,
-        'mqtt_status': get_mqtt_status(),
+        'mqtt_status': get_mqtt_status(request.user),
     })

@@ -72,7 +72,7 @@ def publish_startup_status_and_confirm() -> bool:
     return publish_startup_status()
 
 
-def get_mqtt_status():
+def get_mqtt_status(user):
     """
     Return MQTT connection status for display (e.g. in settings).
     Returns dict: configured (bool), last_ok (bool|None), last_checked_at (datetime|None), broker (str), topic (str).
@@ -85,7 +85,7 @@ def get_mqtt_status():
     last_checked_at = None
     if configured:
         from .models import WhatsAppNotificationState
-        state = WhatsAppNotificationState.get_state()
+        state = WhatsAppNotificationState.get_for_user(user)
         last_ok = state.last_mqtt_ok
         last_checked_at = state.last_mqtt_checked_at
     return {
@@ -143,36 +143,41 @@ def event_key(item: dict) -> str:
 
 def check_and_notify_current_event():
     """
-    Build today's schedule, find the current event, and publish to MQTT
-    only when the current event has changed since the last notification.
+    Build today's schedule per user, find the current event, and publish to MQTT
+    only when that user's current event has changed since their last notification.
     Call this from a cron job every 1–5 minutes.
     """
+    from django.contrib.auth import get_user_model
     from django.utils import timezone
     from .models import Task, ScheduleSettings, WhatsAppNotificationState
     from .services import build_schedule
 
+    User = get_user_model()
     # Use naive datetime to match schedule items from task_manager
     now = datetime.now()
     today = date.today()
-    tasks = Task.objects.all()
-    schedule_settings = ScheduleSettings.get_settings()
-    if not tasks.filter(completed=False).exists():
-        return
-    schedule_items, _ = build_schedule(tasks, schedule_settings, schedule_date=today)
-    current = get_current_event(today, schedule_items, now)
-    if not current:
-        return
-    key = event_key(current)
-    state = WhatsAppNotificationState.get_state()
-    if state.last_event_key == key:
-        return
-    message = event_to_message(current)
-    ok = publish_mqtt_message(message)
-    state.last_mqtt_ok = ok
-    state.last_mqtt_checked_at = timezone.now()
-    if ok:
-        state.last_event_key = key
-        state.last_sent_at = timezone.now()
-    state.save()
-    if ok:
-        logger.info("Published to MQTT for new current event: %s", key)
+
+    for user in User.objects.filter(is_active=True):
+        tasks = Task.objects.filter(user=user)
+        if not tasks.filter(completed=False).exists():
+            continue
+        schedule_settings = ScheduleSettings.get_for_user(user)
+        schedule_items, _ = build_schedule(tasks, schedule_settings, schedule_date=today)
+        current = get_current_event(today, schedule_items, now)
+        if not current:
+            continue
+        key = event_key(current)
+        state = WhatsAppNotificationState.get_for_user(user)
+        if state.last_event_key == key:
+            continue
+        prefix = f"[{user.get_username()}] "
+        message = prefix + event_to_message(current)
+        ok = publish_mqtt_message(message)
+        state.last_mqtt_ok = ok
+        state.last_mqtt_checked_at = timezone.now()
+        if ok:
+            state.last_event_key = key
+            state.last_sent_at = timezone.now()
+        state.save()
+        if ok:
+            logger.info("Published to MQTT for user=%s new current event: %s", user.get_username(), key)

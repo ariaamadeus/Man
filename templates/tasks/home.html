@@ -82,7 +82,13 @@
       </form>
       <span class="priority-dot priority-{{ task.priority }}">●</span>
       <span style="{% if task.completed %}opacity:0.6;text-decoration:line-through;{% endif %}">{{ task.name }}</span>
-      <span class="mono" style="color:var(--text-muted);font-size:13px;">{{ task.duration_minutes }}m · {{ task.get_task_type_display }}</span>
+      <span class="mono" style="color:var(--text-muted);font-size:13px;">
+        {{ task.duration_minutes }}m · {{ task.get_task_type_display }}
+        {% if task.schedule_type == 'recurring' and task.recurrence_unit and task.recurrence_every %}
+          · every {{ task.recurrence_every }} {{ task.recurrence_unit }}{% if task.recurrence_every != 1 %}s{% endif %}
+        {% endif %}
+        {% if task.starts_on %} · starts {{ task.starts_on|date:"j M Y" }}{% endif %}
+      </span>
       <a href="{% url 'tasks:task_edit' task.pk %}" class="btn btn-secondary" style="padding:6px 10px;">Edit</a>
       <form action="{% url 'tasks:task_delete' task.pk %}" method="post" style="margin:0;" onsubmit="return confirm('Delete this task?');">{% csrf_token %}
         <button type="submit" class="btn btn-danger" style="padding:6px 10px;">Delete</button>

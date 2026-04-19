@@ -71,15 +71,18 @@ def _start_notifier_if_needed(**_kwargs) -> None:
             try:
                 # Slight delay so DB is ready (and migrations complete).
                 time.sleep(1)
+                from django.contrib.auth import get_user_model
                 from django.utils import timezone
                 from .models import WhatsAppNotificationState
                 from .whatsapp import publish_startup_status_and_confirm
 
                 ok = publish_startup_status_and_confirm()
-                state = WhatsAppNotificationState.get_state()
-                state.last_mqtt_ok = ok
-                state.last_mqtt_checked_at = timezone.now()
-                state.save()
+                User = get_user_model()
+                for user in User.objects.filter(is_active=True):
+                    state = WhatsAppNotificationState.get_for_user(user)
+                    state.last_mqtt_ok = ok
+                    state.last_mqtt_checked_at = timezone.now()
+                    state.save(update_fields=["last_mqtt_ok", "last_mqtt_checked_at"])
                 logger.info("Published MQTT startup status ok=%s", ok)
             except Exception:
                 logger.exception("Failed to publish MQTT startup status")

@@ -7,17 +7,99 @@
   <h2>{{ title }}</h2>
   <form method="post" action="">
     {% csrf_token %}
-    {% for field in form %}
     <div class="form-group">
-      <label for="{{ field.id_for_label }}">{{ field.label }}</label>
-      {{ field }}
-      {% if field.errors %}<span style="color:var(--priority-high);font-size:13px;">{{ field.errors.0 }}</span>{% endif %}
+      <label for="{{ form.name.id_for_label }}">{{ form.name.label }}</label>
+      {{ form.name }}
+      {% if form.name.errors %}<span style="color:var(--priority-high);font-size:13px;">{{ form.name.errors.0 }}</span>{% endif %}
     </div>
-    {% endfor %}
+
+    <div class="form-group">
+      <label for="{{ form.duration_minutes.id_for_label }}">{{ form.duration_minutes.label }}</label>
+      {{ form.duration_minutes }}
+      {% if form.duration_minutes.errors %}<span style="color:var(--priority-high);font-size:13px;">{{ form.duration_minutes.errors.0 }}</span>{% endif %}
+    </div>
+
+    <div class="form-group">
+      <label for="{{ form.priority.id_for_label }}">{{ form.priority.label }}</label>
+      {{ form.priority }}
+      {% if form.priority.errors %}<span style="color:var(--priority-high);font-size:13px;">{{ form.priority.errors.0 }}</span>{% endif %}
+    </div>
+
+    <div class="form-group">
+      <label for="{{ form.task_type.id_for_label }}">{{ form.task_type.label }}</label>
+      {{ form.task_type }}
+      {% if form.task_type.errors %}<span style="color:var(--priority-high);font-size:13px;">{{ form.task_type.errors.0 }}</span>{% endif %}
+    </div>
+
+    <div class="form-group">
+      <label for="{{ form.schedule_type.id_for_label }}">{{ form.schedule_type.label }}</label>
+      {{ form.schedule_type }}
+      {% if form.schedule_type.errors %}<span style="color:var(--priority-high);font-size:13px;">{{ form.schedule_type.errors.0 }}</span>{% endif %}
+    </div>
+
+    <div id="recurrence-fields">
+      <div class="form-group">
+        <label for="{{ form.recurrence_unit.id_for_label }}">{{ form.recurrence_unit.label }}</label>
+        {{ form.recurrence_unit }}
+        {% if form.recurrence_unit.errors %}<span style="color:var(--priority-high);font-size:13px;">{{ form.recurrence_unit.errors.0 }}</span>{% endif %}
+      </div>
+      <div class="form-group">
+        <label for="{{ form.recurrence_every.id_for_label }}">{{ form.recurrence_every.label }}</label>
+        {{ form.recurrence_every }}
+        {% if form.recurrence_every.errors %}<span style="color:var(--priority-high);font-size:13px;">{{ form.recurrence_every.errors.0 }}</span>{% endif %}
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label for="{{ form.starts_on.id_for_label }}">{{ form.starts_on.label }}</label>
+      {{ form.starts_on }}
+      {% if form.starts_on.errors %}<span style="color:var(--priority-high);font-size:13px;">{{ form.starts_on.errors.0 }}</span>{% endif %}
+    </div>
+
+    <div class="form-group">
+      <label for="{{ form.deadline.id_for_label }}">{{ form.deadline.label }}</label>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        {{ form.deadline }}
+        <button type="button" class="btn btn-secondary" id="clear-deadline-btn" style="white-space:nowrap;">No deadline</button>
+      </div>
+      {% if form.deadline.errors %}<span style="color:var(--priority-high);font-size:13px;">{{ form.deadline.errors.0 }}</span>{% endif %}
+    </div>
+
+    <div class="form-group">
+      <label for="{{ form.description.id_for_label }}">{{ form.description.label }}</label>
+      {{ form.description }}
+      {% if form.description.errors %}<span style="color:var(--priority-high);font-size:13px;">{{ form.description.errors.0 }}</span>{% endif %}
+    </div>
+
     <div style="display:flex;gap:10px;margin-top:16px;">
       <button type="submit" class="btn btn-primary">Save</button>
       <a href="{% url 'tasks:home' %}" class="btn btn-secondary">Cancel</a>
     </div>
   </form>
 </div>
+
+<script>
+(function () {
+  var scheduleTypeEl = document.getElementById('{{ form.schedule_type.auto_id }}');
+  var recurrenceEl = document.getElementById('recurrence-fields');
+  if (!scheduleTypeEl || !recurrenceEl) return;
+
+  function toggleRecurrence() {
+    recurrenceEl.style.display = scheduleTypeEl.value === 'recurring' ? 'block' : 'none';
+  }
+
+  scheduleTypeEl.addEventListener('change', toggleRecurrence);
+  toggleRecurrence();
+})();
+
+(function () {
+  var deadlineEl = document.getElementById('{{ form.deadline.auto_id }}');
+  var clearBtn = document.getElementById('clear-deadline-btn');
+  if (!deadlineEl || !clearBtn) return;
+  clearBtn.addEventListener('click', function () {
+    deadlineEl.value = '';
+    deadlineEl.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+})();
+</script>
 {% endblock %}

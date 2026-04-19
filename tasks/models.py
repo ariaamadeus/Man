@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models
 
 
@@ -14,12 +15,35 @@ class Task(models.Model):
         ('creative', 'Creative'),
         ('learning', 'Learning'),
     ]
+    SCHEDULE_TYPE_CHOICES = [
+        ('one_time', 'One time'),
+        ('recurring', 'Recurring'),
+    ]
+    RECURRENCE_UNIT_CHOICES = [
+        ('daily', 'Daily'),
+        ('weekly', 'Weekly'),
+        ('monthly', 'Monthly'),
+        ('yearly', 'Yearly'),
+    ]
 
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='tasks',
+    )
     name = models.CharField(max_length=200)
     duration_minutes = models.PositiveIntegerField()
     priority = models.CharField(max_length=10, choices=PRIORITY_CHOICES, default='medium')
     task_type = models.CharField(max_length=20, choices=TASK_TYPE_CHOICES, default='focus')
+    schedule_type = models.CharField(max_length=20, choices=SCHEDULE_TYPE_CHOICES, default='one_time')
+    recurrence_unit = models.CharField(max_length=20, choices=RECURRENCE_UNIT_CHOICES, null=True, blank=True)
+    recurrence_every = models.PositiveIntegerField(null=True, blank=True)
     deadline = models.DateField(null=True, blank=True)
+    starts_on = models.DateField(
+        null=True,
+        blank=True,
+        help_text="If set, this task is only included in the schedule on or after this date.",
+    )
     description = models.TextField(blank=True)
     completed = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -32,7 +56,12 @@ class Task(models.Model):
 
 
 class ScheduleSettings(models.Model):
-    """Singleton-style settings for work hours and health breaks."""
+    """Work hours and health-break parameters for one user."""
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='schedule_settings',
+    )
     work_start_hour = models.PositiveSmallIntegerField(default=9)
     work_end_hour = models.PositiveSmallIntegerField(default=17)
     focus_block_max_hours = models.FloatField(default=2.0)
@@ -47,15 +76,28 @@ class ScheduleSettings(models.Model):
         return f"Work {self.work_start_hour}:00–{self.work_end_hour}:00"
 
     @classmethod
-    def get_settings(cls):
-        obj = cls.objects.first()
-        if obj is None:
-            obj = cls.objects.create()
+    def get_for_user(cls, user):
+        obj, _ = cls.objects.get_or_create(
+            user=user,
+            defaults={
+                'work_start_hour': 9,
+                'work_end_hour': 17,
+                'focus_block_max_hours': 2.0,
+                'break_interval_minutes': 90,
+                'lunch_duration_minutes': 60,
+                'lunch_hour': 13,
+            },
+        )
         return obj
 
 
 class WhatsAppNotificationState(models.Model):
     """Stores last notified schedule event so we only send when the event changes."""
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='whatsapp_notification_state',
+    )
     last_event_key = models.CharField(max_length=256, blank=True)
     last_sent_at = models.DateTimeField(null=True, blank=True)
     last_mqtt_ok = models.BooleanField(null=True, blank=True, help_text="True=last publish succeeded, False=failed, null=never tried")
@@ -66,8 +108,6 @@ class WhatsAppNotificationState(models.Model):
         verbose_name_plural = "WhatsApp notification state"
 
     @classmethod
-    def get_state(cls):
-        obj = cls.objects.first()
-        if obj is None:
-            obj = cls.objects.create()
+    def get_for_user(cls, user):
+        obj, _ = cls.objects.get_or_create(user=user)
         return obj
