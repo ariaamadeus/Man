@@ -3,12 +3,23 @@ MQTT integration. Publishes a message when the current schedule event changes.
 Configure MQTT_BROKER, MQTT_TOPIC (and optionally MQTT_USERNAME, MQTT_PASSWORD) in .env.
 """
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 
 import requests
 from django.conf import settings
 
 logger = logging.getLogger(__name__)
+GMT_PLUS_7 = timezone(timedelta(hours=7))
+
+
+def _format_time_gmt_plus_7(dt: datetime) -> str:
+    """
+    Format datetime as HH:MM in GMT+7 for outbound message content.
+    Naive datetimes are treated as UTC before conversion.
+    """
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(GMT_PLUS_7).strftime("%H:%M")
 
 
 def _adafruit_http_publish(value: str, *, topic_override: str | None = None, timeout_seconds: int = 10) -> bool:
@@ -114,7 +125,7 @@ def event_to_message(item: dict) -> str:
     """Format the current event as a short WhatsApp message."""
     start = item["start_time"]
     end = item["end_time"]
-    time_range = f"{start.strftime('%H:%M')} – {end.strftime('%H:%M')}"
+    time_range = f"{_format_time_gmt_plus_7(start)} – {_format_time_gmt_plus_7(end)}"
     if item.get("is_break"):
         break_type = item.get("break_type", "break")
         label = {
