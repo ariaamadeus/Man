@@ -17,11 +17,66 @@
       </div>
       {% endfor %}
     </div>
+    {% if gcal_status.connected %}
+    <div class="form-group" style="margin-top:16px;">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+        <input type="checkbox" name="sync_breaks" {% if gcal_status.sync_breaks %}checked{% endif %}>
+        Also sync lunch & health breaks to Google Calendar
+      </label>
+    </div>
+    {% endif %}
     <div style="margin-top:20px;">
       <button type="submit" class="btn btn-primary">Save settings</button>
       <a href="{% url 'tasks:home' %}" class="btn btn-secondary">Back</a>
     </div>
   </form>
+</div>
+
+<div class="card">
+  <h2>Google Calendar</h2>
+  {% if not gcal_status.configured %}
+  <p style="color:var(--text-muted);margin:0;">
+    Google Calendar sync is not configured yet. Put your OAuth
+    <span class="mono">credentials.json</span> in the project root
+    (or set <span class="mono">GOOGLE_CLIENT_ID</span> /
+    <span class="mono">GOOGLE_CLIENT_SECRET</span> in <span class="mono">.env</span>).
+    Create an OAuth client of type <strong>Web application</strong> in
+    <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">Google Cloud Console</a>,
+    enable the Calendar API, and set Authorized redirect URI to
+    <span class="mono">http://127.0.0.1:8000/google/callback/</span>
+    (Desktop / “installed” clients usually will not accept that redirect).
+  </p>
+  {% elif gcal_status.connected %}
+  <p style="color:var(--text-muted);margin-bottom:12px;">
+    Connected. When you add, edit, complete, or delete tasks (or change work settings),
+    your health-aware schedule for the next week is pushed to Google Calendar
+    (<span class="mono">{{ gcal_status.calendar_id }}</span>).
+  </p>
+  <p style="margin:0 0 16px;">
+    {% if gcal_status.last_synced_at %}
+      {% if gcal_status.last_sync_ok %}
+        <span style="color:var(--accent);">● Synced</span> — last sync at {{ gcal_status.last_synced_at|date:"H:i" }} on {{ gcal_status.last_synced_at|date:"M j, Y" }}.
+      {% else %}
+        <span style="color:var(--priority-high);">● Sync error</span> — {{ gcal_status.last_sync_error|truncatechars:160 }}
+      {% endif %}
+    {% else %}
+      <span style="color:var(--text-muted);">● Connected</span> — waiting for first sync.
+    {% endif %}
+  </p>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;">
+    <form method="post" action="{% url 'tasks:google_sync_now' %}" style="margin:0;">{% csrf_token %}
+      <button type="submit" class="btn btn-primary">Sync now</button>
+    </form>
+    <form method="post" action="{% url 'tasks:google_disconnect' %}" style="margin:0;" onsubmit="return confirm('Disconnect and remove synced events from Google Calendar?');">{% csrf_token %}
+      <button type="submit" class="btn btn-secondary">Disconnect</button>
+    </form>
+  </div>
+  {% else %}
+  <p style="color:var(--text-muted);margin-bottom:16px;">
+    Connect your Google account so schedule changes automatically appear on your calendar.
+  </p>
+  <a href="{% url 'tasks:google_connect' %}" class="btn btn-primary">Connect Google Calendar</a>
+  {% endif %}
 </div>
 
 <div class="card">

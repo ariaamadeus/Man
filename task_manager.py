@@ -36,6 +36,7 @@ class Task:
     deadline: Optional[str] = None
     description: str = ""
     completed: bool = False
+    source_id: Optional[int] = None  # Django Task.pk when bridged from the web app
 
 
 @dataclass
@@ -92,7 +93,8 @@ class HealthAwareTaskManager:
         priority: str = "medium",
         task_type: str = "focus",
         deadline: Optional[str] = None,
-        description: str = ""
+        description: str = "",
+        source_id: Optional[int] = None,
     ):
         """Add a new task to the manager."""
         task = Task(
@@ -101,7 +103,8 @@ class HealthAwareTaskManager:
             priority=TaskPriority(priority.lower()),
             task_type=TaskType(task_type.lower()),
             deadline=deadline,
-            description=description
+            description=description,
+            source_id=source_id,
         )
         self.tasks.append(task)
         return task

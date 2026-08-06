@@ -104,3 +104,39 @@ MQTT_NOTIFIER_INTERVAL_SECONDS = int(os.environ.get("MQTT_NOTIFIER_INTERVAL_SECO
 # Publish a one-time "initialized/online" message at server startup.
 MQTT_PUBLISH_STARTUP_STATUS = os.environ.get("MQTT_PUBLISH_STARTUP_STATUS", "1").strip() == "1"
 MQTT_STARTUP_STATUS_TOPIC = os.environ.get("MQTT_STARTUP_STATUS_TOPIC", "").strip()
+
+# Google Calendar (credentials.json preferred; else GOOGLE_CLIENT_* in .env)
+def _load_google_oauth_from_credentials_file():
+    """Read client_id/secret from Google's credentials.json (web or installed)."""
+    import json
+
+    path = BASE_DIR / "credentials.json"
+    if not path.is_file():
+        return "", "", ""
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return "", "", ""
+    block = data.get("web") or data.get("installed") or {}
+    client_id = (block.get("client_id") or "").strip()
+    client_secret = (block.get("client_secret") or "").strip()
+    redirects = block.get("redirect_uris") or []
+    # Prefer an http redirect that points at this app's callback if listed.
+    redirect = ""
+    for uri in redirects:
+        if isinstance(uri, str) and "callback" in uri:
+            redirect = uri.strip()
+            break
+    return client_id, client_secret, redirect
+
+
+_gcal_file_id, _gcal_file_secret, _gcal_file_redirect = _load_google_oauth_from_credentials_file()
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "").strip() or _gcal_file_id
+GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "").strip() or _gcal_file_secret
+GOOGLE_REDIRECT_URI = os.environ.get(
+    "GOOGLE_REDIRECT_URI",
+    "",
+).strip() or _gcal_file_redirect or "http://127.0.0.1:8000/google/callback/"
+GOOGLE_CREDENTIALS_FILE = str(BASE_DIR / "credentials.json")
+GOOGLE_CALENDAR_SYNC_DAYS = int(os.environ.get("GOOGLE_CALENDAR_SYNC_DAYS", "7").strip() or "7")
+GOOGLE_CALENDAR_TIMEZONE = os.environ.get("GOOGLE_CALENDAR_TIMEZONE", "Asia/Jakarta").strip() or "Asia/Jakarta"

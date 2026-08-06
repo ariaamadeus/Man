@@ -86,6 +86,7 @@ def build_schedule(task_queryset, settings, schedule_date=None):
             task_type=t.task_type,
             deadline=t.deadline.isoformat() if t.deadline else None,
             description=t.description or "",
+            source_id=t.pk,
         )
     if schedule_date:
         start = datetime.combine(schedule_date, datetime.min.time()).replace(
@@ -111,6 +112,7 @@ def build_schedule(task_queryset, settings, schedule_date=None):
             d['task_priority'] = item.task.priority.value
             d['task_type'] = item.task.task_type.value
             d['task_description'] = item.task.description or ""
+            d['task_id'] = item.task.source_id
         items.append(d)
 
     summary = manager.get_health_summary()

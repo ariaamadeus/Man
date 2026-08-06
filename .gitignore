@@ -2,3 +2,8 @@
 db.sqlite3
 
 __pycache__/
+
+# Google OAuth secrets — never commit
+credentials.json
+token.json
+client_secret*.json

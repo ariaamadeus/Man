@@ -111,3 +111,56 @@ class WhatsAppNotificationState(models.Model):
     def get_for_user(cls, user):
         obj, _ = cls.objects.get_or_create(user=user)
         return obj
+
+
+class GoogleCalendarConnection(models.Model):
+    """Per-user OAuth credentials for Google Calendar sync."""
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='google_calendar',
+    )
+    token_json = models.TextField(blank=True, help_text="OAuth token JSON (includes refresh token)")
+    calendar_id = models.CharField(max_length=256, default='primary')
+    sync_enabled = models.BooleanField(default=True)
+    sync_breaks = models.BooleanField(
+        default=True,
+        help_text="Also push lunch/health breaks as calendar events",
+    )
+    last_synced_at = models.DateTimeField(null=True, blank=True)
+    last_sync_ok = models.BooleanField(null=True, blank=True)
+    last_sync_error = models.TextField(blank=True)
+    connected_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name_plural = "Google Calendar connections"
+
+    def __str__(self):
+        return f"Google Calendar for {self.user}"
+
+    @property
+    def is_connected(self):
+        return bool(self.token_json.strip())
+
+
+class CalendarEventMapping(models.Model):
+    """Maps a local schedule slot to a Google Calendar event id."""
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='calendar_event_mappings',
+    )
+    schedule_date = models.DateField()
+    local_key = models.CharField(max_length=256)
+    google_event_id = models.CharField(max_length=256)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = [('user', 'schedule_date', 'local_key')]
+        indexes = [
+            models.Index(fields=['user', 'schedule_date']),
+        ]
+
+    def __str__(self):
+        return f"{self.local_key} → {self.google_event_id}"

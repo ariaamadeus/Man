@@ -1,12 +1,20 @@
 from datetime import date, datetime, timedelta
+import json
+import secrets
+
 from django.shortcuts import render, redirect, get_object_or_404
-from django.views.decorators.http import require_http_methods, require_POST
+from django.views.decorators.http import require_POST
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
-from .models import Task, ScheduleSettings
+from .models import Task, ScheduleSettings, GoogleCalendarConnection
 from .forms import TaskForm, ScheduleSettingsForm
 from .services import build_schedule
 from .whatsapp import get_mqtt_status
+from . import google_calendar as gcal
+
+
+def _sync_calendar(user):
+    gcal.sync_user_schedule_safe(user)
 
 
 @login_required
@@ -54,6 +62,7 @@ def task_add(request):
             task = form.save(commit=False)
             task.user = request.user
             task.save()
+            _sync_calendar(request.user)
             messages.success(request, 'Task added.')
             return redirect('tasks:home')
     else:
@@ -68,6 +77,7 @@ def task_edit(request, pk):
         form = TaskForm(request.POST, instance=task)
         if form.is_valid():
             form.save()
+            _sync_calendar(request.user)
             messages.success(request, 'Task updated.')
             return redirect('tasks:home')
     else:
@@ -80,6 +90,7 @@ def task_edit(request, pk):
 def task_delete(request, pk):
     task = get_object_or_404(Task, pk=pk, user=request.user)
     task.delete()
+    _sync_calendar(request.user)
     messages.success(request, 'Task deleted.')
     return redirect('tasks:home')
 
@@ -90,6 +101,7 @@ def task_toggle_done(request, pk):
     task = get_object_or_404(Task, pk=pk, user=request.user)
     task.completed = not task.completed
     task.save()
+    _sync_calendar(request.user)
     messages.success(request, 'Task marked as done.' if task.completed else 'Task marked as not done.')
     return redirect('tasks:home')
 
@@ -101,6 +113,13 @@ def settings_view(request):
         form = ScheduleSettingsForm(request.POST, instance=schedule_settings)
         if form.is_valid():
             form.save()
+            connection = GoogleCalendarConnection.objects.filter(user=request.user).first()
+            if connection and connection.is_connected:
+                sync_breaks = request.POST.get('sync_breaks') == 'on'
+                if connection.sync_breaks != sync_breaks:
+                    connection.sync_breaks = sync_breaks
+                    connection.save(update_fields=['sync_breaks', 'updated_at'])
+            _sync_calendar(request.user)
             messages.success(request, 'Settings saved.')
             return redirect('tasks:home')
     else:
@@ -108,4 +127,100 @@ def settings_view(request):
     return render(request, 'tasks/settings.html', {
         'form': form,
         'mqtt_status': get_mqtt_status(request.user),
+        'gcal_status': gcal.get_connection_status(request.user),
     })
+
+
+@login_required
+def google_connect(request):
+    if not gcal.google_oauth_configured():
+        messages.error(
+            request,
+            'Google Calendar is not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in .env.',
+        )
+        return redirect('tasks:settings')
+    state = secrets.token_urlsafe(24)
+    request.session['google_oauth_state'] = state
+    return redirect(gcal.get_authorization_url(state))
+
+
+@login_required
+def google_callback(request):
+    if not gcal.google_oauth_configured():
+        messages.error(request, 'Google Calendar is not configured.')
+        return redirect('tasks:settings')
+
+    error = request.GET.get('error')
+    if error:
+        messages.error(request, f'Google authorization failed: {error}')
+        return redirect('tasks:settings')
+
+    state = request.GET.get('state', '')
+    expected = request.session.pop('google_oauth_state', None)
+    if not expected or state != expected:
+        messages.error(request, 'Invalid OAuth state. Please try connecting again.')
+        return redirect('tasks:settings')
+
+    code = request.GET.get('code')
+    if not code:
+        messages.error(request, 'Missing authorization code from Google.')
+        return redirect('tasks:settings')
+
+    try:
+        token_data = gcal.exchange_code_for_tokens(code)
+        if not token_data.get('refresh_token'):
+            # Re-consent may be needed; keep going if we already stored a refresh token.
+            existing = GoogleCalendarConnection.objects.filter(user=request.user).first()
+            if existing and existing.token_json:
+                old = json.loads(existing.token_json)
+                if old.get('refresh_token'):
+                    token_data['refresh_token'] = old['refresh_token']
+        if not token_data.get('refresh_token'):
+            messages.error(
+                request,
+                'Google did not return a refresh token. Revoke access for this app in your Google Account and try again.',
+            )
+            return redirect('tasks:settings')
+
+        connection, _ = GoogleCalendarConnection.objects.get_or_create(user=request.user)
+        connection.token_json = json.dumps(token_data)
+        connection.sync_enabled = True
+        connection.last_sync_error = ''
+        connection.save()
+        result = gcal.sync_user_schedule(request.user)
+        if result.get('ok'):
+            messages.success(request, 'Google Calendar connected and schedule synced.')
+        else:
+            messages.warning(
+                request,
+                f"Connected, but initial sync failed: {result.get('error') or result.get('reason')}",
+            )
+    except Exception as exc:  # noqa: BLE001
+        messages.error(request, f'Failed to connect Google Calendar: {exc}')
+    return redirect('tasks:settings')
+
+
+@login_required
+@require_POST
+def google_disconnect(request):
+    gcal.clear_user_calendar_events(request.user)
+    GoogleCalendarConnection.objects.filter(user=request.user).delete()
+    messages.success(request, 'Google Calendar disconnected. Synced events were removed.')
+    return redirect('tasks:settings')
+
+
+@login_required
+@require_POST
+def google_sync_now(request):
+    result = gcal.sync_user_schedule(request.user)
+    if result.get('ok'):
+        messages.success(
+            request,
+            f"Calendar synced — created {result.get('created', 0)}, "
+            f"updated {result.get('updated', 0)}, deleted {result.get('deleted', 0)}.",
+        )
+    elif result.get('skipped'):
+        messages.warning(request, f"Sync skipped ({result.get('reason')}). Connect Google Calendar first.")
+    else:
+        messages.error(request, f"Sync failed: {result.get('error', 'unknown error')}")
+    return redirect('tasks:settings')

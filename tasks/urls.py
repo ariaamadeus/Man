@@ -10,4 +10,8 @@ urlpatterns = [
     path('task/<int:pk>/delete/', views.task_delete, name='task_delete'),
     path('task/<int:pk>/toggle-done/', views.task_toggle_done, name='task_toggle_done'),
     path('settings/', views.settings_view, name='settings'),
+    path('google/connect/', views.google_connect, name='google_connect'),
+    path('google/callback/', views.google_callback, name='google_callback'),
+    path('google/disconnect/', views.google_disconnect, name='google_disconnect'),
+    path('google/sync/', views.google_sync_now, name='google_sync_now'),
 ]
