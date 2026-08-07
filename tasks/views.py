@@ -6,7 +6,9 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.views.decorators.http import require_POST
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
-from .models import Task, ScheduleSettings, GoogleCalendarConnection
+from django.urls import reverse
+from django.http import HttpResponseRedirect
+from .models import Task, TaskTimeLog, ScheduleSettings, GoogleCalendarConnection
 from .forms import TaskForm, ScheduleSettingsForm
 from .services import build_schedule
 from .whatsapp import get_mqtt_status
@@ -19,7 +21,7 @@ def _sync_calendar(user):
 
 @login_required
 def home(request):
-    tasks = Task.objects.filter(user=request.user)
+    tasks = list(Task.objects.filter(user=request.user))
     schedule_settings = ScheduleSettings.get_for_user(request.user)
 
     # Keep server-rendered "now" in sync with the UI "Realtime" clock (UTC+7).
@@ -36,12 +38,40 @@ def home(request):
     else:
         schedule_date = today
 
+    task_qs = Task.objects.filter(user=request.user)
     schedule_items = []
     health_summary = {}
-    if tasks.filter(completed=False).exists():
+    if task_qs.filter(completed=False).exists():
         schedule_items, health_summary = build_schedule(
-            tasks, schedule_settings, schedule_date=schedule_date
+            task_qs, schedule_settings, schedule_date=schedule_date
         )
+
+    # Attach per-task progress/waste for the viewed day (for schedule + list UI).
+    task_progress = {}
+    for t in tasks:
+        progress = {
+            'done_today': t.done_minutes_for_date(schedule_date),
+            'wasted_today': t.wasted_minutes_for_date(schedule_date),
+            'remaining': t.remaining_minutes(on_date=schedule_date),
+            'wasted_total': t.wasted_minutes,
+            'done_total': t.done_minutes,
+        }
+        task_progress[t.pk] = progress
+        t.display_remaining = progress['remaining']
+        t.display_wasted_today = progress['wasted_today']
+
+    for item in schedule_items:
+        tid = item.get('task_id')
+        if tid and tid in task_progress:
+            item['done_today'] = task_progress[tid]['done_today']
+            item['wasted_today'] = task_progress[tid]['wasted_today']
+            item['remaining_total'] = task_progress[tid]['remaining']
+
+    day_logs = (
+        TaskTimeLog.objects.filter(user=request.user, schedule_date=schedule_date)
+        .select_related('task')
+        .order_by('-created_at')[:20]
+    )
 
     return render(request, 'tasks/home.html', {
         'tasks': tasks,
@@ -51,6 +81,8 @@ def home(request):
         'settings': schedule_settings,
         'now': now,
         'today': today,
+        'task_progress': task_progress,
+        'day_logs': day_logs,
     })
 
 
@@ -104,6 +136,90 @@ def task_toggle_done(request, pk):
     _sync_calendar(request.user)
     messages.success(request, 'Task marked as done.' if task.completed else 'Task marked as not done.')
     return redirect('tasks:home')
+
+
+@login_required
+@require_POST
+def task_log_progress(request, pk):
+    """Log how long was done/wasted on a slot; remaining duration is rescheduled."""
+    task = get_object_or_404(Task, pk=pk, user=request.user)
+
+    try:
+        done_minutes = max(0, int(request.POST.get('done_minutes') or 0))
+    except (TypeError, ValueError):
+        done_minutes = 0
+    try:
+        wasted_minutes = max(0, int(request.POST.get('wasted_minutes') or 0))
+    except (TypeError, ValueError):
+        wasted_minutes = 0
+    try:
+        planned_minutes = max(0, int(request.POST.get('planned_minutes') or 0))
+    except (TypeError, ValueError):
+        planned_minutes = 0
+
+    if done_minutes == 0 and wasted_minutes == 0:
+        messages.warning(request, 'Enter done and/or wasted minutes.')
+        return redirect('tasks:home')
+
+    schedule_date_raw = request.POST.get('schedule_date') or ''
+    try:
+        schedule_date = date.fromisoformat(schedule_date_raw) if schedule_date_raw else date.today()
+    except ValueError:
+        schedule_date = date.today()
+
+    slot_start = None
+    slot_start_raw = (request.POST.get('slot_start') or '').strip()
+    if slot_start_raw:
+        try:
+            slot_start = datetime.fromisoformat(slot_start_raw)
+        except ValueError:
+            slot_start = None
+
+    remaining_before = task.remaining_minutes(on_date=schedule_date)
+    if done_minutes > remaining_before:
+        done_minutes = remaining_before
+
+    TaskTimeLog.objects.create(
+        task=task,
+        user=request.user,
+        schedule_date=schedule_date,
+        slot_start=slot_start,
+        planned_minutes=planned_minutes,
+        done_minutes=done_minutes,
+        wasted_minutes=wasted_minutes,
+    )
+
+    task.done_minutes = task.done_minutes + done_minutes
+    task.wasted_minutes = task.wasted_minutes + wasted_minutes
+
+    remaining_after = task.remaining_minutes(on_date=schedule_date)
+    if remaining_after <= 0 and task.schedule_type == 'one_time':
+        task.completed = True
+        # Fully done — keep any pinned time as historical; no need to reschedule.
+    elif remaining_after > 0 and done_minutes > 0:
+        # Partial progress: clear pinned clock time so the leftover is free to
+        # pack into a later gap instead of sticking to the original slot.
+        task.start_time = None
+
+    task.save()
+    _sync_calendar(request.user)
+
+    if task.completed:
+        messages.success(
+            request,
+            f'Logged {done_minutes}m done'
+            + (f', {wasted_minutes}m wasted' if wasted_minutes else '')
+            + '. Task finished.',
+        )
+    else:
+        messages.success(
+            request,
+            f'Logged {done_minutes}m done'
+            + (f', {wasted_minutes}m wasted' if wasted_minutes else '')
+            + f'. {remaining_after}m remaining rescheduled.',
+        )
+
+    return HttpResponseRedirect(f"{reverse('tasks:home')}?date={schedule_date.isoformat()}")
 
 
 @login_required

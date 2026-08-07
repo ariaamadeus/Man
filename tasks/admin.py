@@ -1,6 +1,7 @@
 from django.contrib import admin
 from .models import (
     Task,
+    TaskTimeLog,
     ScheduleSettings,
     WhatsAppNotificationState,
     GoogleCalendarConnection,
@@ -11,7 +12,8 @@ from .models import (
 @admin.register(Task)
 class TaskAdmin(admin.ModelAdmin):
     list_display = [
-        'name', 'user', 'duration_minutes', 'priority', 'task_type',
+        'name', 'user', 'duration_minutes', 'done_minutes', 'wasted_minutes',
+        'priority', 'task_type',
         'schedule_type', 'recurrence_unit', 'recurrence_every',
         'starts_on', 'start_time', 'splittable', 'deadline', 'completed', 'created_at',
     ]
@@ -19,6 +21,16 @@ class TaskAdmin(admin.ModelAdmin):
         'priority', 'task_type', 'schedule_type', 'recurrence_unit',
         'splittable', 'completed', 'user', 'starts_on',
     ]
+
+
+@admin.register(TaskTimeLog)
+class TaskTimeLogAdmin(admin.ModelAdmin):
+    list_display = [
+        'task', 'user', 'schedule_date', 'slot_start',
+        'planned_minutes', 'done_minutes', 'wasted_minutes', 'created_at',
+    ]
+    list_filter = ['schedule_date', 'user']
+    search_fields = ['task__name', 'note']
 
 
 @admin.register(ScheduleSettings)

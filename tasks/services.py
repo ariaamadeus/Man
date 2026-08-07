@@ -79,9 +79,12 @@ def build_schedule(task_queryset, settings, schedule_date=None):
     for t in eligible_tasks:
         if not _is_task_due_on_date(t, effective_date):
             continue
+        remaining = t.remaining_minutes(on_date=effective_date)
+        if remaining <= 0:
+            continue
         manager.add_task(
             name=t.name,
-            duration_minutes=t.duration_minutes,
+            duration_minutes=remaining,
             priority=t.priority,
             task_type=t.task_type,
             deadline=t.deadline.isoformat() if t.deadline else None,
@@ -115,6 +118,7 @@ def build_schedule(task_queryset, settings, schedule_date=None):
             d['task_type'] = item.task.task_type.value
             d['task_description'] = item.task.description or ""
             d['task_id'] = item.task.source_id
+            d['task_remaining_minutes'] = item.task.duration_minutes
         items.append(d)
 
     summary = manager.get_health_summary()

@@ -12,6 +12,37 @@
   .priority-dot.priority-medium { color: var(--priority-medium); }
   .priority-dot.priority-low { color: var(--priority-low); }
   .schedule-item-current { background: rgba(63, 185, 80, 0.12); border-radius: 8px; margin: 0 -8px; padding: 12px 8px !important; border-left: 3px solid var(--accent); }
+  .progress-form {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+    margin-top: 8px;
+    width: 100%;
+  }
+  .progress-form label {
+    font-size: 12px;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .progress-form input[type="number"] {
+    width: 64px;
+    padding: 4px 6px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text);
+    font-family: inherit;
+    font-size: 13px;
+  }
+  .meta-pill {
+    font-size: 12px;
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+  .meta-pill.waste { color: #f85149; }
 </style>
 {% endblock %}
 
@@ -33,7 +64,7 @@
   <h2>Your health-aware schedule for {{ schedule_date }}</h2>
   <ul class="schedule-list" style="list-style:none;padding:0;margin:0;">
     {% for item in schedule_items %}
-    <li class="schedule-item {% if schedule_date == today and now >= item.start_time and now <= item.end_time %}schedule-item-current{% endif %}" style="display:flex;align-items:flex-start;gap:12px;padding:12px 0;border-bottom:1px solid var(--border);">
+    <li class="schedule-item {% if schedule_date == today and now >= item.start_time and now <= item.end_time %}schedule-item-current{% endif %}" style="display:flex;flex-wrap:wrap;align-items:flex-start;gap:12px;padding:12px 0;border-bottom:1px solid var(--border);">
       <span class="mono" style="flex-shrink:0;width:100px;color:var(--text-muted);">
         {{ item.start_time|time:"H:i" }} – {{ item.end_time|time:"H:i" }}
         {% if schedule_date == today and now >= item.start_time and now <= item.end_time %}<span class="now-badge" style="display:block;font-size:11px;color:var(--accent);">● Now</span>{% endif %}
@@ -49,7 +80,24 @@
         <span style="color:var(--text-muted);">{{ item.break_description }}</span>
       {% else %}
         <span class="priority-dot priority-{{ item.task_priority }}">●</span>
-        <span><strong>{{ item.task_name }}</strong>{% if item.task_description %} – {{ item.task_description }}{% endif %}</span>
+        <span style="flex:1;min-width:180px;">
+          <strong>{{ item.task_name }}</strong>{% if item.task_description %} – {{ item.task_description }}{% endif %}
+          {% if item.remaining_total is not None %}
+          <span class="meta-pill"> · {{ item.remaining_total }}m left</span>
+          {% endif %}
+          {% if item.wasted_today %}
+          <span class="meta-pill waste"> · {{ item.wasted_today }}m wasted today</span>
+          {% endif %}
+          <form class="progress-form" action="{% url 'tasks:task_log_progress' item.task_id %}" method="post">
+            {% csrf_token %}
+            <input type="hidden" name="schedule_date" value="{{ schedule_date|date:'Y-m-d' }}">
+            <input type="hidden" name="planned_minutes" value="{{ item.duration_minutes }}">
+            <input type="hidden" name="slot_start" value="{{ item.start_time|date:'Y-m-d\TH:i:s' }}">
+            <label>Done <input type="number" name="done_minutes" min="0" max="{{ item.duration_minutes }}" step="5" placeholder="0" title="Minutes already done in this slot"></label>
+            <label>Wasted <input type="number" name="wasted_minutes" min="0" max="{{ item.duration_minutes }}" step="5" placeholder="0" title="Minutes wasted in this slot"></label>
+            <button type="submit" class="btn btn-secondary" style="padding:4px 10px;font-size:12px;">Log &amp; reschedule</button>
+          </form>
+        </span>
       {% endif %}
     </li>
     {% endfor %}
@@ -69,12 +117,30 @@
 </div>
 {% endif %}
 
+{% if day_logs %}
+<div class="card">
+  <h2>Time log for {{ schedule_date }}</h2>
+  <ul style="list-style:none;padding:0;margin:0;">
+    {% for log in day_logs %}
+    <li style="display:flex;flex-wrap:wrap;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:14px;">
+      <span class="mono" style="color:var(--text-muted);width:70px;">{{ log.created_at|time:"H:i" }}</span>
+      <span style="flex:1;min-width:140px;"><strong>{{ log.task.name }}</strong></span>
+      {% if log.slot_start %}<span class="mono" style="color:var(--text-muted);">slot {{ log.slot_start|time:"H:i" }}</span>{% endif %}
+      <span>{{ log.done_minutes }}m done</span>
+      <span class="{% if log.wasted_minutes %}meta-pill waste{% else %}meta-pill{% endif %}">{{ log.wasted_minutes }}m wasted</span>
+      {% if log.planned_minutes %}<span class="meta-pill">of {{ log.planned_minutes }}m planned</span>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
 <div class="card">
   <h2>Your tasks</h2>
   {% if tasks %}
   <ul style="list-style:none;padding:0;margin:0;">
     {% for task in tasks %}
-    <li style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border);">
+    <li style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border);flex-wrap:wrap;">
       <form action="{% url 'tasks:task_toggle_done' task.pk %}" method="post" style="margin:0;">{% csrf_token %}
         <button type="submit" class="btn btn-secondary" style="padding:6px 10px;" title="Toggle done">
           {% if task.completed %}✓ Done{% else %}○ Todo{% endif %}
@@ -90,6 +156,10 @@
         {% if task.starts_on %} · starts {{ task.starts_on|date:"j M Y" }}{% endif %}
         {% if task.start_time %} · {{ task.start_time|time:"H:i" }}{% endif %}
         {% if not task.splittable %} · unsplittable{% endif %}
+        {% if not task.completed %} · {{ task.display_remaining }}m left{% endif %}
+        {% if task.done_minutes %} · {{ task.done_minutes }}m done{% endif %}
+        {% if task.display_wasted_today %} · <span style="color:#f85149;">{{ task.display_wasted_today }}m wasted today</span>{% endif %}
+        {% if task.wasted_minutes %} · <span style="color:#f85149;">{{ task.wasted_minutes }}m wasted total</span>{% endif %}
       </span>
       <a href="{% url 'tasks:task_edit' task.pk %}" class="btn btn-secondary" style="padding:6px 10px;">Edit</a>
       <form action="{% url 'tasks:task_delete' task.pk %}" method="post" style="margin:0;" onsubmit="return confirm('Delete this task?');">{% csrf_token %}

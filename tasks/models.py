@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.db import models
+from django.db.models import Sum
 
 
 class Task(models.Model):
@@ -55,6 +56,14 @@ class Task(models.Model):
     )
     description = models.TextField(blank=True)
     completed = models.BooleanField(default=False)
+    done_minutes = models.PositiveIntegerField(
+        default=0,
+        help_text="Productive minutes already completed (one-time tasks; recurring uses per-day logs).",
+    )
+    wasted_minutes = models.PositiveIntegerField(
+        default=0,
+        help_text="Cumulative wasted minutes across logged sessions.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -66,8 +75,64 @@ class Task(models.Model):
             self.splittable = False
         super().save(*args, **kwargs)
 
+    def done_minutes_for_date(self, on_date):
+        """Minutes already done that should reduce scheduling for this date."""
+        if self.schedule_type == 'recurring':
+            total = self.time_logs.filter(schedule_date=on_date).aggregate(
+                s=Sum('done_minutes')
+            )['s']
+            return total or 0
+        return self.done_minutes
+
+    def remaining_minutes(self, on_date=None):
+        done = self.done_minutes_for_date(on_date) if on_date is not None else self.done_minutes
+        return max(0, self.duration_minutes - done)
+
+    def wasted_minutes_for_date(self, on_date):
+        total = self.time_logs.filter(schedule_date=on_date).aggregate(
+            s=Sum('wasted_minutes')
+        )['s']
+        return total or 0
+
     def __str__(self):
         return self.name
+
+
+class TaskTimeLog(models.Model):
+    """One progress/waste entry for a scheduled task slot (an 'event')."""
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name='time_logs')
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='task_time_logs',
+    )
+    schedule_date = models.DateField()
+    slot_start = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Start of the schedule slot this log applies to, if known.",
+    )
+    planned_minutes = models.PositiveIntegerField(
+        default=0,
+        help_text="Planned duration of the slot when progress was logged.",
+    )
+    done_minutes = models.PositiveIntegerField(default=0)
+    wasted_minutes = models.PositiveIntegerField(default=0)
+    note = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['user', 'schedule_date']),
+            models.Index(fields=['task', 'schedule_date']),
+        ]
+
+    def __str__(self):
+        return (
+            f"{self.task.name} @ {self.schedule_date}: "
+            f"+{self.done_minutes}m done, +{self.wasted_minutes}m wasted"
+        )
 
 
 class ScheduleSettings(models.Model):
