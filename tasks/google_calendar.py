@@ -32,11 +32,25 @@ def google_oauth_configured() -> bool:
     )
 
 
-def get_redirect_uri() -> str:
-    return getattr(settings, "GOOGLE_REDIRECT_URI", "").strip() or "http://127.0.0.1:8000/google/callback/"
+def get_redirect_uri(request=None) -> str:
+    """
+    OAuth redirect must match Google Cloud Console exactly.
+    When a request is available, build from the current host (local vs
+    PythonAnywhere). Otherwise fall back to GOOGLE_REDIRECT_URI / localhost.
+    """
+    if request is not None:
+        host = request.get_host()
+        host_name = host.split(":")[0].lower()
+        scheme = request.scheme
+        if request.is_secure() or host_name.endswith("pythonanywhere.com"):
+            scheme = "https"
+        return f"{scheme}://{host}/google/callback/"
+
+    configured = getattr(settings, "GOOGLE_REDIRECT_URI", "").strip()
+    return configured or "http://127.0.0.1:8000/google/callback/"
 
 
-def _flow():
+def _flow(redirect_uri: str | None = None):
     from google_auth_oauthlib.flow import Flow
     from pathlib import Path
 
@@ -47,11 +61,14 @@ def _flow():
         )
 
     creds_path = Path(getattr(settings, "GOOGLE_CREDENTIALS_FILE", "") or "")
-    redirect_uri = get_redirect_uri()
+    redirect_uri = redirect_uri or get_redirect_uri()
+    # Explicit True: from_client_config() otherwise passes None and disables PKCE
+    # generation, while some environments still send a challenge → invalid_grant.
+    flow_kwargs = {"autogenerate_code_verifier": True}
 
     if creds_path.is_file():
         # Supports both "web" and "installed" Google client JSON downloads.
-        flow = Flow.from_client_secrets_file(str(creds_path), scopes=SCOPES)
+        flow = Flow.from_client_secrets_file(str(creds_path), scopes=SCOPES, **flow_kwargs)
     else:
         client_config = {
             "web": {
@@ -62,25 +79,34 @@ def _flow():
                 "redirect_uris": [redirect_uri],
             }
         }
-        flow = Flow.from_client_config(client_config, scopes=SCOPES)
+        flow = Flow.from_client_config(client_config, scopes=SCOPES, **flow_kwargs)
 
     flow.redirect_uri = redirect_uri
     return flow
 
 
-def get_authorization_url(state: str) -> str:
-    flow = _flow()
+def get_authorization_url(state: str, request=None):
+    redirect_uri = get_redirect_uri(request)
+    flow = _flow(redirect_uri)
     auth_url, _ = flow.authorization_url(
         access_type="offline",
         include_granted_scopes="true",
         prompt="consent",
         state=state,
     )
-    return auth_url
+    # PKCE: code_verifier must be reused on the callback token exchange.
+    return auth_url, redirect_uri, flow.code_verifier
 
 
-def exchange_code_for_tokens(code: str) -> dict:
-    flow = _flow()
+def exchange_code_for_tokens(
+    code: str,
+    redirect_uri: str | None = None,
+    code_verifier: str | None = None,
+) -> dict:
+    flow = _flow(redirect_uri)
+    # Don't generate a new verifier for token exchange — reuse the one from connect.
+    flow.autogenerate_code_verifier = False
+    flow.code_verifier = code_verifier
     flow.fetch_token(code=code)
     credentials = flow.credentials
     return {

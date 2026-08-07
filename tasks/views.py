@@ -136,12 +136,18 @@ def google_connect(request):
     if not gcal.google_oauth_configured():
         messages.error(
             request,
-            'Google Calendar is not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in .env.',
+            'Google Calendar is not configured. Upload credentials.json or set GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET.',
         )
         return redirect('tasks:settings')
     state = secrets.token_urlsafe(24)
     request.session['google_oauth_state'] = state
-    return redirect(gcal.get_authorization_url(state))
+    auth_url, redirect_uri, code_verifier = gcal.get_authorization_url(state, request=request)
+    request.session['google_oauth_redirect_uri'] = redirect_uri
+    if code_verifier:
+        request.session['google_oauth_code_verifier'] = code_verifier
+    else:
+        request.session.pop('google_oauth_code_verifier', None)
+    return redirect(auth_url)
 
 
 @login_required
@@ -157,6 +163,8 @@ def google_callback(request):
 
     state = request.GET.get('state', '')
     expected = request.session.pop('google_oauth_state', None)
+    redirect_uri = request.session.pop('google_oauth_redirect_uri', None) or gcal.get_redirect_uri(request)
+    code_verifier = request.session.pop('google_oauth_code_verifier', None)
     if not expected or state != expected:
         messages.error(request, 'Invalid OAuth state. Please try connecting again.')
         return redirect('tasks:settings')
@@ -167,7 +175,11 @@ def google_callback(request):
         return redirect('tasks:settings')
 
     try:
-        token_data = gcal.exchange_code_for_tokens(code)
+        token_data = gcal.exchange_code_for_tokens(
+            code,
+            redirect_uri=redirect_uri,
+            code_verifier=code_verifier,
+        )
         if not token_data.get('refresh_token'):
             # Re-consent may be needed; keep going if we already stored a refresh token.
             existing = GoogleCalendarConnection.objects.filter(user=request.user).first()

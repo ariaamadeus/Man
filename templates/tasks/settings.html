@@ -42,9 +42,11 @@
     <span class="mono">GOOGLE_CLIENT_SECRET</span> in <span class="mono">.env</span>).
     Create an OAuth client of type <strong>Web application</strong> in
     <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener">Google Cloud Console</a>,
-    enable the Calendar API, and set Authorized redirect URI to
-    <span class="mono">http://127.0.0.1:8000/google/callback/</span>
-    (Desktop / “installed” clients usually will not accept that redirect).
+    enable the Calendar API, and under Authorized redirect URIs add both:
+    <span class="mono">https://ariamadeus.pythonanywhere.com/google/callback/</span>
+    and (for local) <span class="mono">http://127.0.0.1:8000/google/callback/</span>.
+    Desktop / “installed” clients will not accept those redirects — use
+    <strong>Web application</strong>.
   </p>
   {% elif gcal_status.connected %}
   <p style="color:var(--text-muted);margin-bottom:12px;">
