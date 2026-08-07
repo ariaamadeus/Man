@@ -44,12 +44,27 @@ class Task(models.Model):
         blank=True,
         help_text="If set, this task is only included in the schedule on or after this date.",
     )
+    start_time = models.TimeField(
+        null=True,
+        blank=True,
+        help_text="If set, the scheduler will try to place this task at this clock time.",
+    )
+    splittable = models.BooleanField(
+        default=True,
+        help_text="If false, health breaks will not split this task into multiple blocks.",
+    )
     description = models.TextField(blank=True)
     completed = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ['-created_at']
+
+    def save(self, *args, **kwargs):
+        # Meetings must stay contiguous (cannot be split around breaks).
+        if self.task_type == 'meeting':
+            self.splittable = False
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return self.name

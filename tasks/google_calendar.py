@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone as dt_timezone
 from typing import Optional
 from zoneinfo import ZoneInfo
 
@@ -129,7 +129,7 @@ def _credentials_from_connection(connection: GoogleCalendarConnection):
     if data.get("expiry"):
         expiry = datetime.fromisoformat(data["expiry"])
         if timezone.is_naive(expiry):
-            expiry = timezone.make_aware(expiry, timezone.utc)
+            expiry = timezone.make_aware(expiry, dt_timezone.utc)
 
     creds = Credentials(
         token=data.get("token"),

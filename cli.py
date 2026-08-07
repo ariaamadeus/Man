@@ -70,10 +70,30 @@ def add_task_interactive(manager: HealthAwareTaskManager):
     task_type = type_map.get(type_choice, "focus")
     
     deadline = get_user_input("Deadline (YYYY-MM-DD, optional)", "")
+    start_time_raw = get_user_input("Start time (HH:MM, optional)", "")
     description = get_user_input("Description (optional)", "")
-    
-    manager.add_task(name, duration, priority, task_type, deadline if deadline else None, description)
+
+    start_time = None
+    if start_time_raw:
+        try:
+            from datetime import time as time_cls
+            hour, minute = map(int, start_time_raw.split(":"))
+            start_time = time_cls(hour, minute)
+        except ValueError:
+            print("⚠️  Invalid start time format, ignoring.")
+
+    manager.add_task(
+        name,
+        duration,
+        priority,
+        task_type,
+        deadline if deadline else None,
+        description,
+        start_time=start_time,
+    )
     print(f"✅ Task '{name}' added successfully!")
+    if task_type == "meeting":
+        print("   (Meetings are unsplittable — kept as one continuous block)")
 
 
 def configure_manager(manager: HealthAwareTaskManager):

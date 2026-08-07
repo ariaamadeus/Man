@@ -87,6 +87,8 @@ def build_schedule(task_queryset, settings, schedule_date=None):
             deadline=t.deadline.isoformat() if t.deadline else None,
             description=t.description or "",
             source_id=t.pk,
+            start_time=t.start_time,
+            splittable=t.splittable,
         )
     if schedule_date:
         start = datetime.combine(schedule_date, datetime.min.time()).replace(

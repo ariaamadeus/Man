@@ -13,11 +13,11 @@ class TaskAdmin(admin.ModelAdmin):
     list_display = [
         'name', 'user', 'duration_minutes', 'priority', 'task_type',
         'schedule_type', 'recurrence_unit', 'recurrence_every',
-        'starts_on', 'deadline', 'completed', 'created_at',
+        'starts_on', 'start_time', 'splittable', 'deadline', 'completed', 'created_at',
     ]
     list_filter = [
         'priority', 'task_type', 'schedule_type', 'recurrence_unit',
-        'completed', 'user', 'starts_on',
+        'splittable', 'completed', 'user', 'starts_on',
     ]
 
 

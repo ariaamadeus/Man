@@ -10,7 +10,7 @@ class TaskForm(forms.ModelForm):
         fields = [
             'name', 'duration_minutes', 'priority', 'task_type',
             'schedule_type', 'recurrence_unit', 'recurrence_every',
-            'starts_on', 'deadline', 'description',
+            'starts_on', 'start_time', 'deadline', 'description',
         ]
         widgets = {
             'name': forms.TextInput(attrs={'class': 'form-input', 'placeholder': 'Task name'}),
@@ -21,6 +21,7 @@ class TaskForm(forms.ModelForm):
             'recurrence_unit': forms.Select(attrs={'class': 'form-select'}),
             'recurrence_every': forms.NumberInput(attrs={'class': 'form-input', 'min': 1, 'step': 1}),
             'starts_on': forms.DateInput(attrs={'class': 'form-input custom-date-picker', 'type': 'date', 'readonly': True}),
+            'start_time': forms.TimeInput(attrs={'class': 'form-input', 'type': 'time'}),
             'deadline': forms.DateInput(attrs={'class': 'form-input custom-date-picker', 'type': 'date', 'readonly': True}),
             'description': forms.Textarea(attrs={'class': 'form-textarea', 'rows': 2, 'placeholder': 'Optional description'}),
         }
@@ -32,6 +33,7 @@ class TaskForm(forms.ModelForm):
         recurrence_every = cleaned.get('recurrence_every')
         starts_on = cleaned.get('starts_on')
         deadline = cleaned.get('deadline')
+        task_type = cleaned.get('task_type')
 
         if schedule_type == 'recurring':
             if not recurrence_unit:
@@ -48,6 +50,10 @@ class TaskForm(forms.ModelForm):
             raise ValidationError({
                 'starts_on': ['Start date cannot be after the deadline.'],
             })
+
+        # Meetings are always unsplittable; applied on model save as well.
+        if task_type == 'meeting':
+            cleaned['splittable'] = False
         return cleaned
 
 

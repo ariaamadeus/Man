@@ -6,7 +6,7 @@ A task management system that schedules your work tasks while prioritizing your 
 import sys
 import os
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time
 from typing import List, Dict, Optional
 from dataclasses import dataclass, field
 from enum import Enum
@@ -37,6 +37,8 @@ class Task:
     description: str = ""
     completed: bool = False
     source_id: Optional[int] = None  # Django Task.pk when bridged from the web app
+    start_time: Optional[time] = None  # Preferred clock time for scheduling
+    splittable: bool = True  # False for meetings / contiguous blocks
 
 
 @dataclass
@@ -95,16 +97,26 @@ class HealthAwareTaskManager:
         deadline: Optional[str] = None,
         description: str = "",
         source_id: Optional[int] = None,
+        start_time: Optional[time] = None,
+        splittable: Optional[bool] = None,
     ):
         """Add a new task to the manager."""
+        resolved_type = TaskType(task_type.lower())
+        # Meetings are always unsplittable unless explicitly overridden.
+        if splittable is None:
+            splittable = resolved_type != TaskType.MEETING
+        elif resolved_type == TaskType.MEETING:
+            splittable = False
         task = Task(
             name=name,
             duration_minutes=duration_minutes,
             priority=TaskPriority(priority.lower()),
-            task_type=TaskType(task_type.lower()),
+            task_type=resolved_type,
             deadline=deadline,
             description=description,
             source_id=source_id,
+            start_time=start_time,
+            splittable=splittable,
         )
         self.tasks.append(task)
         return task
@@ -182,15 +194,16 @@ class HealthAwareTaskManager:
             if start_date < datetime.now():
                 start_date = start_date + timedelta(days=1)
         
-        # Sort tasks by priority and deadline
+        # Sort: fixed start times first (by clock), then priority / deadline
         sorted_tasks = sorted(
             self.tasks,
             key=lambda t: (
-                t.priority.value == "high",
+                t.start_time is None,
+                t.start_time or time.max,
+                0 if t.priority == TaskPriority.HIGH else (1 if t.priority == TaskPriority.MEDIUM else 2),
                 t.deadline if t.deadline else "9999-12-31",
-                t.duration_minutes
+                t.duration_minutes,
             ),
-            reverse=True
         )
         
         scheduled_items: List[ScheduledItem] = []
@@ -208,6 +221,41 @@ class HealthAwareTaskManager:
         for task in sorted_tasks:
             if task.completed:
                 continue
+
+            # Prefer pinned clock start times when possible
+            if task.start_time is not None:
+                preferred = current_time.replace(
+                    hour=task.start_time.hour,
+                    minute=task.start_time.minute,
+                    second=0,
+                    microsecond=0,
+                )
+                if preferred > current_time:
+                    # Insert any scheduled breaks that fall before the preferred start
+                    while break_index < len(health_breaks):
+                        next_break = health_breaks[break_index]
+                        if (
+                            next_break.scheduled_time
+                            and current_time <= next_break.scheduled_time < preferred
+                        ):
+                            break_duration = timedelta(minutes=next_break.duration_minutes)
+                            break_start = next_break.scheduled_time
+                            if break_start + break_duration > work_end:
+                                break
+                            scheduled_items.append(ScheduledItem(
+                                start_time=break_start,
+                                end_time=break_start + break_duration,
+                                break_item=next_break,
+                                is_break=True
+                            ))
+                            current_time = break_start + break_duration
+                            last_break_time = current_time
+                            focus_time_accumulated = timedelta(0)
+                            break_index += 1
+                        else:
+                            break
+                    if preferred >= current_time:
+                        current_time = preferred
             
             # Check if we need a break before this task
             time_since_break = current_time - last_break_time
@@ -272,7 +320,13 @@ class HealthAwareTaskManager:
                     focus_time_accumulated = timedelta(0)
                     break_index += 1
                 elif next_break.scheduled_time and next_break.scheduled_time < current_time + timedelta(minutes=task.duration_minutes):
-                    # Break is coming during this task, schedule task up to break
+                    # Break would fall during this task
+                    if not task.splittable:
+                        # Keep the task contiguous: place the whole block and
+                        # skip overlapping breaks after scheduling below.
+                        break
+
+                    # Splittable: schedule task up to break
                     task_duration_until_break = (next_break.scheduled_time - current_time).total_seconds() / 60
                     if task_duration_until_break >= 15:  # Only if meaningful time
                         scheduled_items.append(ScheduledItem(
@@ -309,6 +363,9 @@ class HealthAwareTaskManager:
                 else:
                     break
             
+            if task.completed:
+                continue
+
             # Check if we have time for this task
             task_duration = timedelta(minutes=task.duration_minutes)
             if current_time + task_duration > work_end:
@@ -325,6 +382,15 @@ class HealthAwareTaskManager:
             focus_time_accumulated += task_duration
             current_time += task_duration
             task.completed = True
+
+            # Skip any health breaks that would have fallen inside this (unsplittable) block
+            task_end = current_time
+            while break_index < len(health_breaks):
+                next_break = health_breaks[break_index]
+                if next_break.scheduled_time and next_break.scheduled_time < task_end:
+                    break_index += 1
+                else:
+                    break
         
         # Add any remaining health breaks
         while break_index < len(health_breaks):

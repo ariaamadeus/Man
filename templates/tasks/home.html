@@ -88,6 +88,8 @@
           · every {{ task.recurrence_every }} {{ task.recurrence_unit }}{% if task.recurrence_every != 1 %}s{% endif %}
         {% endif %}
         {% if task.starts_on %} · starts {{ task.starts_on|date:"j M Y" }}{% endif %}
+        {% if task.start_time %} · {{ task.start_time|time:"H:i" }}{% endif %}
+        {% if not task.splittable %} · unsplittable{% endif %}
       </span>
       <a href="{% url 'tasks:task_edit' task.pk %}" class="btn btn-secondary" style="padding:6px 10px;">Edit</a>
       <form action="{% url 'tasks:task_delete' task.pk %}" method="post" style="margin:0;" onsubmit="return confirm('Delete this task?');">{% csrf_token %}
