@@ -1,4 +1,4 @@
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 import json
 import secrets
 
@@ -7,12 +7,15 @@ from django.views.decorators.http import require_POST
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.urls import reverse
-from django.http import HttpResponseRedirect
+from django.http import HttpResponseRedirect, JsonResponse
 from .models import Task, TaskTimeLog, ScheduleSettings, GoogleCalendarConnection
 from .forms import TaskForm, ScheduleSettingsForm
 from .services import build_schedule
 from .whatsapp import get_mqtt_status
 from . import google_calendar as gcal
+
+# Vertical scale for the day timeline (px per minute of the workday).
+TIMELINE_PX_PER_MINUTE = 1.4
 
 
 def _sync_calendar(user):
@@ -60,12 +63,32 @@ def home(request):
         t.display_remaining = progress['remaining']
         t.display_wasted_today = progress['wasted_today']
 
+    work_start_min = schedule_settings.work_start_hour * 60
+    work_end_min = schedule_settings.work_end_hour * 60
+    workday_minutes = max(1, work_end_min - work_start_min)
+    timeline_height = int(workday_minutes * TIMELINE_PX_PER_MINUTE)
+    hour_marks = [
+        {
+            'hour': hour,
+            'label': f'{hour:02d}:00',
+            'top_px': round((hour * 60 - work_start_min) * TIMELINE_PX_PER_MINUTE, 1),
+        }
+        for hour in range(schedule_settings.work_start_hour, schedule_settings.work_end_hour + 1)
+    ]
+
     for item in schedule_items:
         tid = item.get('task_id')
         if tid and tid in task_progress:
             item['done_today'] = task_progress[tid]['done_today']
             item['wasted_today'] = task_progress[tid]['wasted_today']
             item['remaining_total'] = task_progress[tid]['remaining']
+
+        start_dt = item['start_time']
+        start_min = start_dt.hour * 60 + start_dt.minute
+        offset = max(0, start_min - work_start_min)
+        item['top_px'] = round(offset * TIMELINE_PX_PER_MINUTE, 1)
+        item['height_px'] = max(28, round(item['duration_minutes'] * TIMELINE_PX_PER_MINUTE, 1))
+        item['start_hm'] = start_dt.strftime('%H:%M')
 
     day_logs = (
         TaskTimeLog.objects.filter(user=request.user, schedule_date=schedule_date)
@@ -83,6 +106,11 @@ def home(request):
         'today': today,
         'task_progress': task_progress,
         'day_logs': day_logs,
+        'timeline_height': timeline_height,
+        'timeline_px_per_minute': TIMELINE_PX_PER_MINUTE,
+        'work_start_min': work_start_min,
+        'work_end_min': work_end_min,
+        'hour_marks': hour_marks,
     })
 
 
@@ -136,6 +164,69 @@ def task_toggle_done(request, pk):
     _sync_calendar(request.user)
     messages.success(request, 'Task marked as done.' if task.completed else 'Task marked as not done.')
     return redirect('tasks:home')
+
+
+@login_required
+@require_POST
+def task_reschedule(request, pk):
+    """Pin a task to a new clock time (used by drag-and-drop on the day timeline)."""
+    task = get_object_or_404(Task, pk=pk, user=request.user)
+    start_hm = (request.POST.get('start_time') or '').strip()
+    schedule_date_raw = (request.POST.get('schedule_date') or '').strip()
+    wants_json = (
+        'application/json' in (request.headers.get('Accept') or '')
+        or request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+    )
+
+    try:
+        schedule_date = date.fromisoformat(schedule_date_raw) if schedule_date_raw else date.today()
+    except ValueError:
+        schedule_date = date.today()
+
+    try:
+        hour_s, minute_s = start_hm.split(':', 1)
+        hour, minute = int(hour_s), int(minute_s)
+        if not (0 <= hour <= 23 and 0 <= minute <= 59):
+            raise ValueError('out of range')
+        # Snap to 5-minute grid.
+        minute = (minute // 5) * 5
+        new_time = time(hour=hour, minute=minute)
+    except (TypeError, ValueError):
+        msg = 'Invalid start time.'
+        if wants_json:
+            return JsonResponse({'ok': False, 'error': msg}, status=400)
+        messages.error(request, msg)
+        return HttpResponseRedirect(f"{reverse('tasks:home')}?date={schedule_date.isoformat()}")
+
+    settings = ScheduleSettings.get_for_user(request.user)
+    start_min = hour * 60 + minute
+    end_min = start_min + task.remaining_minutes(on_date=schedule_date)
+    work_start = settings.work_start_hour * 60
+    work_end = settings.work_end_hour * 60
+    if start_min < work_start or end_min > work_end:
+        msg = (
+            f'Time must fit within work hours '
+            f'({settings.work_start_hour:02d}:00–{settings.work_end_hour:02d}:00).'
+        )
+        if wants_json:
+            return JsonResponse({'ok': False, 'error': msg}, status=400)
+        messages.error(request, msg)
+        return HttpResponseRedirect(f"{reverse('tasks:home')}?date={schedule_date.isoformat()}")
+
+    task.start_time = new_time
+    task.save(update_fields=['start_time'])
+    _sync_calendar(request.user)
+
+    msg = f'Rescheduled “{task.name}” to {new_time.strftime("%H:%M")}.'
+    if wants_json:
+        return JsonResponse({
+            'ok': True,
+            'message': msg,
+            'start_time': new_time.strftime('%H:%M'),
+            'redirect': f"{reverse('tasks:home')}?date={schedule_date.isoformat()}",
+        })
+    messages.success(request, msg)
+    return HttpResponseRedirect(f"{reverse('tasks:home')}?date={schedule_date.isoformat()}")
 
 
 @login_required

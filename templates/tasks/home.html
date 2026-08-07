@@ -11,31 +11,31 @@
   .priority-dot.priority-high { color: var(--priority-high); }
   .priority-dot.priority-medium { color: var(--priority-medium); }
   .priority-dot.priority-low { color: var(--priority-low); }
-  .schedule-item-current { background: rgba(63, 185, 80, 0.12); border-radius: 8px; margin: 0 -8px; padding: 12px 8px !important; border-left: 3px solid var(--accent); }
+  .schedule-item-current { box-shadow: inset 3px 0 0 var(--accent); }
   .progress-form {
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
     align-items: center;
-    margin-top: 8px;
+    margin-top: 6px;
     width: 100%;
   }
   .progress-form label {
-    font-size: 12px;
+    font-size: 11px;
     color: var(--text-muted);
     display: flex;
     align-items: center;
     gap: 4px;
   }
   .progress-form input[type="number"] {
-    width: 64px;
-    padding: 4px 6px;
+    width: 56px;
+    padding: 3px 5px;
     border-radius: 6px;
     border: 1px solid var(--border);
     background: var(--bg);
     color: var(--text);
     font-family: inherit;
-    font-size: 13px;
+    font-size: 12px;
   }
   .meta-pill {
     font-size: 12px;
@@ -43,6 +43,136 @@
     white-space: nowrap;
   }
   .meta-pill.waste { color: #f85149; }
+
+  .day-timeline {
+    display: grid;
+    grid-template-columns: 56px 1fr;
+    gap: 0 10px;
+    position: relative;
+    user-select: none;
+  }
+  .timeline-hours {
+    position: relative;
+  }
+  .timeline-hour {
+    position: absolute;
+    left: 0;
+    right: 0;
+    transform: translateY(-50%);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+  .timeline-track {
+    position: relative;
+    border-left: 1px solid var(--border);
+    background:
+      repeating-linear-gradient(
+        to bottom,
+        transparent 0,
+        transparent calc(60px * var(--px-per-min) - 1px),
+        rgba(45, 58, 79, 0.55) calc(60px * var(--px-per-min) - 1px),
+        rgba(45, 58, 79, 0.55) calc(60px * var(--px-per-min))
+      );
+    border-radius: 0 8px 8px 0;
+    min-height: 200px;
+  }
+  .timeline-block {
+    position: absolute;
+    left: 8px;
+    right: 8px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    padding: 8px 10px 8px 28px;
+    overflow: hidden;
+    box-sizing: border-box;
+    transition: box-shadow 0.15s, opacity 0.15s;
+    z-index: 1;
+  }
+  .timeline-block.is-break {
+    opacity: 0.85;
+    background: rgba(26, 35, 50, 0.7);
+  }
+  .timeline-block.is-task {
+    cursor: grab;
+    touch-action: none;
+  }
+  .timeline-block.is-task:hover {
+    border-color: var(--text-muted);
+    z-index: 2;
+  }
+  .timeline-block.is-dragging {
+    cursor: grabbing;
+    z-index: 20;
+    opacity: 0.95;
+    box-shadow: 0 12px 28px rgba(0,0,0,0.45);
+    border-color: var(--accent);
+  }
+  .timeline-block.is-saving {
+    opacity: 0.6;
+    pointer-events: none;
+  }
+  .drag-handle {
+    position: absolute;
+    left: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 14px;
+    color: var(--text-muted);
+    font-size: 12px;
+    letter-spacing: -2px;
+    line-height: 1;
+    cursor: grab;
+    user-select: none;
+  }
+  .timeline-block.is-dragging .drag-handle { cursor: grabbing; }
+  .block-time {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-bottom: 2px;
+  }
+  .block-title {
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.3;
+  }
+  .block-title .priority-dot { margin-right: 4px; }
+  .drop-guide {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: var(--accent);
+    box-shadow: 0 0 8px rgba(63, 185, 80, 0.6);
+    z-index: 15;
+    display: none;
+    pointer-events: none;
+  }
+  .drop-guide.is-visible { display: block; }
+  .drop-guide-label {
+    position: absolute;
+    left: 10px;
+    top: -18px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--accent);
+    background: var(--surface);
+    padding: 1px 6px;
+    border-radius: 4px;
+    border: 1px solid var(--accent-dim);
+  }
+  .timeline-hint {
+    color: var(--text-muted);
+    font-size: 13px;
+    margin: 0 0 14px;
+  }
+  @media (max-width: 640px) {
+    .day-timeline { grid-template-columns: 40px 1fr; }
+    .timeline-block { padding-left: 22px; right: 4px; left: 4px; }
+    .progress-form { display: none; }
+  }
 </style>
 {% endblock %}
 
@@ -62,46 +192,83 @@
 {% if schedule_items %}
 <div class="card">
   <h2>Your health-aware schedule for {{ schedule_date }}</h2>
-  <ul class="schedule-list" style="list-style:none;padding:0;margin:0;">
-    {% for item in schedule_items %}
-    <li class="schedule-item {% if schedule_date == today and now >= item.start_time and now <= item.end_time %}schedule-item-current{% endif %}" style="display:flex;flex-wrap:wrap;align-items:flex-start;gap:12px;padding:12px 0;border-bottom:1px solid var(--border);">
-      <span class="mono" style="flex-shrink:0;width:100px;color:var(--text-muted);">
-        {{ item.start_time|time:"H:i" }} – {{ item.end_time|time:"H:i" }}
-        {% if schedule_date == today and now >= item.start_time and now <= item.end_time %}<span class="now-badge" style="display:block;font-size:11px;color:var(--accent);">● Now</span>{% endif %}
-      </span>
-      <span style="flex-shrink:0;width:44px;text-align:center;" title="{{ item.duration_minutes }} min">({{ item.duration_minutes }}m)</span>
-      {% if item.is_break %}
-        <span class="break-badge break-{{ item.break_type }}" style="padding:4px 10px;border-radius:6px;font-size:13px;font-weight:500;">
-          {% if item.break_type == 'physical' %}🏃 Break{% endif %}
-          {% if item.break_type == 'mental' %}🧘 Mental break{% endif %}
-          {% if item.break_type == 'hydration' %}💧 Hydration{% endif %}
-          {% if item.break_type == 'meal' %}🍽️ Lunch{% endif %}
-        </span>
-        <span style="color:var(--text-muted);">{{ item.break_description }}</span>
-      {% else %}
-        <span class="priority-dot priority-{{ item.task_priority }}">●</span>
-        <span style="flex:1;min-width:180px;">
-          <strong>{{ item.task_name }}</strong>{% if item.task_description %} – {{ item.task_description }}{% endif %}
-          {% if item.remaining_total is not None %}
-          <span class="meta-pill"> · {{ item.remaining_total }}m left</span>
+  <p class="timeline-hint">Drag a task block up or down to pin it to a new time (snaps to 5 minutes). Breaks stay fixed.</p>
+
+  <div
+    class="day-timeline"
+    id="day-timeline"
+    style="--px-per-min: {{ timeline_px_per_minute }};"
+    data-px-per-min="{{ timeline_px_per_minute }}"
+    data-work-start-min="{{ work_start_min }}"
+    data-work-end-min="{{ work_end_min }}"
+    data-schedule-date="{{ schedule_date|date:'Y-m-d' }}"
+    data-csrf="{{ csrf_token }}"
+  >
+    <div class="timeline-hours" style="height: {{ timeline_height }}px;">
+      {% for mark in hour_marks %}
+      <div class="timeline-hour" style="top: {{ mark.top_px }}px;">{{ mark.label }}</div>
+      {% endfor %}
+    </div>
+
+    <div class="timeline-track" id="timeline-track" style="height: {{ timeline_height }}px;">
+      <div class="drop-guide" id="drop-guide"><span class="drop-guide-label" id="drop-guide-label">00:00</span></div>
+
+      {% for item in schedule_items %}
+      <div
+        class="timeline-block {% if item.is_break %}is-break break-{{ item.break_type }}{% else %}is-task{% if schedule_date == today and now >= item.start_time and now <= item.end_time %} schedule-item-current{% endif %}{% endif %}"
+        style="top: {{ item.top_px }}px; height: {{ item.height_px }}px;"
+        {% if not item.is_break %}
+        data-task-id="{{ item.task_id }}"
+        data-duration="{{ item.duration_minutes }}"
+        data-remaining="{% if item.remaining_total is not None %}{{ item.remaining_total }}{% else %}{{ item.duration_minutes }}{% endif %}"
+        data-reschedule-url="{% url 'tasks:task_reschedule' item.task_id %}"
+        {% endif %}
+      >
+        {% if not item.is_break %}
+        <span class="drag-handle" title="Drag to reschedule" aria-hidden="true">⠿</span>
+        {% endif %}
+        <div class="block-time">
+          {{ item.start_time|time:"H:i" }} – {{ item.end_time|time:"H:i" }}
+          · {{ item.duration_minutes }}m
+          {% if schedule_date == today and now >= item.start_time and now <= item.end_time and not item.is_break %}
+          <span style="color:var(--accent);">● Now</span>
           {% endif %}
-          {% if item.wasted_today %}
-          <span class="meta-pill waste"> · {{ item.wasted_today }}m wasted today</span>
+        </div>
+        {% if item.is_break %}
+          <div class="block-title">
+            {% if item.break_type == 'physical' %}🏃 Break{% endif %}
+            {% if item.break_type == 'mental' %}🧘 Mental break{% endif %}
+            {% if item.break_type == 'hydration' %}💧 Hydration{% endif %}
+            {% if item.break_type == 'meal' %}🍽️ Lunch{% endif %}
+            <span style="font-weight:400;color:var(--text-muted);"> — {{ item.break_description }}</span>
+          </div>
+        {% else %}
+          <div class="block-title">
+            <span class="priority-dot priority-{{ item.task_priority }}">●</span>{{ item.task_name }}
+            {% if item.remaining_total is not None %}
+            <span class="meta-pill">· {{ item.remaining_total }}m left</span>
+            {% endif %}
+            {% if item.wasted_today %}
+            <span class="meta-pill waste">· {{ item.wasted_today }}m wasted today</span>
+            {% endif %}
+          </div>
+          {% if item.task_description %}
+          <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">{{ item.task_description }}</div>
           {% endif %}
-          <form class="progress-form" action="{% url 'tasks:task_log_progress' item.task_id %}" method="post">
+          <form class="progress-form" action="{% url 'tasks:task_log_progress' item.task_id %}" method="post" onpointerdown="event.stopPropagation()">
             {% csrf_token %}
             <input type="hidden" name="schedule_date" value="{{ schedule_date|date:'Y-m-d' }}">
             <input type="hidden" name="planned_minutes" value="{{ item.duration_minutes }}">
             <input type="hidden" name="slot_start" value="{{ item.start_time|date:'Y-m-d\TH:i:s' }}">
-            <label>Done <input type="number" name="done_minutes" min="0" max="{{ item.duration_minutes }}" step="5" placeholder="0" title="Minutes already done in this slot"></label>
-            <label>Wasted <input type="number" name="wasted_minutes" min="0" max="{{ item.duration_minutes }}" step="5" placeholder="0" title="Minutes wasted in this slot"></label>
-            <button type="submit" class="btn btn-secondary" style="padding:4px 10px;font-size:12px;">Log &amp; reschedule</button>
+            <label>Done <input type="number" name="done_minutes" min="0" max="{{ item.duration_minutes }}" step="5" placeholder="0"></label>
+            <label>Wasted <input type="number" name="wasted_minutes" min="0" max="{{ item.duration_minutes }}" step="5" placeholder="0"></label>
+            <button type="submit" class="btn btn-secondary" style="padding:3px 8px;font-size:11px;">Log</button>
           </form>
-        </span>
-      {% endif %}
-    </li>
-    {% endfor %}
-  </ul>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
 </div>
 
 {% if health_summary %}
@@ -176,14 +343,146 @@
 <script>
 (function () {
   var el = document.getElementById('live-time');
-  if (!el) return;
-  function pad(n) { return (n < 10 ? '0' : '') + n; }
-  function showTime() {
-    var d = new Date();
-    el.textContent = pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+  if (el) {
+    function pad(n) { return (n < 10 ? '0' : '') + n; }
+    function showTime() {
+      var d = new Date();
+      el.textContent = pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+    }
+    setInterval(showTime, 1000);
+    showTime();
   }
-  setInterval(showTime, 1000);
-  showTime();
+
+  var root = document.getElementById('day-timeline');
+  var track = document.getElementById('timeline-track');
+  var guide = document.getElementById('drop-guide');
+  var guideLabel = document.getElementById('drop-guide-label');
+  if (!root || !track) return;
+
+  var pxPerMin = parseFloat(root.dataset.pxPerMin) || 1.4;
+  var workStartMin = parseInt(root.dataset.workStartMin, 10) || 0;
+  var workEndMin = parseInt(root.dataset.workEndMin, 10) || 24 * 60;
+  var scheduleDate = root.dataset.scheduleDate;
+  var csrf = root.dataset.csrf;
+  var snap = 5;
+
+  function pad2(n) { return (n < 10 ? '0' : '') + n; }
+  function minToHM(totalMin) {
+    var h = Math.floor(totalMin / 60);
+    var m = totalMin % 60;
+    return pad2(h) + ':' + pad2(m);
+  }
+  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+  function snapMin(m) { return Math.round(m / snap) * snap; }
+
+  var drag = null;
+
+  function onPointerDown(e) {
+    var block = e.target.closest('.timeline-block.is-task');
+    if (!block || !track.contains(block)) return;
+    if (e.target.closest('form, input, button, a, label')) return;
+    if (e.button != null && e.button !== 0) return;
+
+    e.preventDefault();
+    var duration = parseInt(block.dataset.duration, 10) || 30;
+    var remaining = parseInt(block.dataset.remaining, 10) || duration;
+    var startTop = parseFloat(block.style.top) || 0;
+    drag = {
+      block: block,
+      duration: duration,
+      remaining: remaining,
+      startY: e.clientY,
+      originTop: startTop,
+      pointerId: e.pointerId,
+    };
+    block.classList.add('is-dragging');
+    block.setPointerCapture(e.pointerId);
+    guide.classList.add('is-visible');
+    updateGuide(startTop);
+  }
+
+  function updateGuide(topPx) {
+    guide.style.top = topPx + 'px';
+    var absMin = workStartMin + snapMin(topPx / pxPerMin);
+    guideLabel.textContent = minToHM(absMin);
+  }
+
+  function onPointerMove(e) {
+    if (!drag || drag.pointerId !== e.pointerId) return;
+    var maxTop = Math.max(0, (workEndMin - workStartMin - drag.remaining) * pxPerMin);
+    var delta = e.clientY - drag.startY;
+    var rawTop = drag.originTop + delta;
+    var snappedTop = snapMin(rawTop / pxPerMin) * pxPerMin;
+    snappedTop = clamp(snappedTop, 0, maxTop);
+    drag.block.style.top = snappedTop + 'px';
+    drag.currentTop = snappedTop;
+    updateGuide(snappedTop);
+  }
+
+  function finishDrag(e, cancelled) {
+    if (!drag || (e && drag.pointerId !== e.pointerId)) return;
+    var block = drag.block;
+    var topPx = drag.currentTop != null ? drag.currentTop : drag.originTop;
+    var duration = drag.duration;
+    block.classList.remove('is-dragging');
+    guide.classList.remove('is-visible');
+
+    var newAbsMin = workStartMin + snapMin(topPx / pxPerMin);
+    var originAbsMin = workStartMin + snapMin(drag.originTop / pxPerMin);
+    drag = null;
+
+    if (cancelled || newAbsMin === originAbsMin) {
+      block.style.top = (originAbsMin - workStartMin) * pxPerMin + 'px';
+      return;
+    }
+
+    var hm = minToHM(newAbsMin);
+    var timeEl = block.querySelector('.block-time');
+    if (timeEl) {
+      var endMin = newAbsMin + duration;
+      var nowBadge = timeEl.querySelector('span');
+      timeEl.textContent = hm + ' – ' + minToHM(endMin) + ' · ' + duration + 'm ';
+      if (nowBadge) timeEl.appendChild(nowBadge);
+    }
+
+    block.classList.add('is-saving');
+    var body = new URLSearchParams();
+    body.set('start_time', hm);
+    body.set('schedule_date', scheduleDate);
+    body.set('csrfmiddlewaretoken', csrf);
+
+    fetch(block.dataset.rescheduleUrl, {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'X-Requested-With': 'XMLHttpRequest',
+        'X-CSRFToken': csrf,
+      },
+      body: body,
+      credentials: 'same-origin',
+    })
+      .then(function (res) { return res.json().then(function (data) { return { ok: res.ok, data: data }; }); })
+      .then(function (result) {
+        if (!result.ok || !result.data.ok) {
+          alert((result.data && result.data.error) || 'Could not reschedule.');
+          window.location.reload();
+          return;
+        }
+        window.location.href = result.data.redirect || (window.location.pathname + '?date=' + scheduleDate);
+      })
+      .catch(function () {
+        alert('Network error while rescheduling.');
+        window.location.reload();
+      });
+  }
+
+  track.addEventListener('pointerdown', onPointerDown);
+  track.addEventListener('pointermove', onPointerMove);
+  track.addEventListener('pointerup', function (e) { finishDrag(e, false); });
+  track.addEventListener('pointercancel', function (e) { finishDrag(e, true); });
+  window.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && drag) finishDrag({ pointerId: drag.pointerId }, true);
+  });
 })();
 </script>
 {% endblock %}
