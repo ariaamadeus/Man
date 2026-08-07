@@ -169,6 +169,11 @@ class CalendarEventMapping(models.Model):
     schedule_date = models.DateField()
     local_key = models.CharField(max_length=256)
     google_event_id = models.CharField(max_length=256)
+    content_hash = models.CharField(
+        max_length=64,
+        blank=True,
+        help_text="Hash of last synced event body; skip API when unchanged.",
+    )
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

@@ -184,231 +184,176 @@ class HealthAwareTaskManager:
     def schedule_tasks(self, start_date: Optional[datetime] = None) -> List[ScheduledItem]:
         """
         Schedule all tasks with health breaks integrated.
-        Prioritizes high-priority tasks and ensures health breaks are included.
+        Tasks with a start_time are pinned to that clock time and scheduled first.
+        Meetings / unsplittable tasks are never split around breaks.
         """
         if not self.tasks:
             return []
-        
+
         if start_date is None:
             start_date = datetime.now().replace(hour=self.work_start_hour, minute=0, second=0, microsecond=0)
             if start_date < datetime.now():
                 start_date = start_date + timedelta(days=1)
-        
-        # Sort: fixed start times first (by clock), then priority / deadline
-        sorted_tasks = sorted(
-            self.tasks,
+
+        work_end = start_date.replace(hour=self.work_end_hour, minute=0, second=0, microsecond=0)
+        health_breaks = self._create_health_breaks(start_date, work_end)
+
+        pinned_tasks = sorted(
+            [t for t in self.tasks if not t.completed and t.start_time is not None],
+            key=lambda t: t.start_time or time.max,
+        )
+        flexible_tasks = sorted(
+            [t for t in self.tasks if not t.completed and t.start_time is None],
             key=lambda t: (
-                t.start_time is None,
-                t.start_time or time.max,
                 0 if t.priority == TaskPriority.HIGH else (1 if t.priority == TaskPriority.MEDIUM else 2),
                 t.deadline if t.deadline else "9999-12-31",
                 t.duration_minutes,
             ),
         )
-        
+
+        # Occupied intervals: (start, end) — pinned tasks + placed breaks that must stay
+        occupied: List[tuple] = []
         scheduled_items: List[ScheduledItem] = []
-        current_time = start_date
-        work_end = start_date.replace(hour=self.work_end_hour, minute=0, second=0, microsecond=0)
-        
-        # Create all health breaks for the day
-        health_breaks = self._create_health_breaks(start_date, work_end)
-        break_index = 0
-        
-        # Track focus time for breaks
-        focus_time_accumulated = timedelta(0)
-        last_break_time = current_time
-        
-        for task in sorted_tasks:
-            if task.completed:
-                continue
 
-            # Prefer pinned clock start times when possible
-            if task.start_time is not None:
-                preferred = current_time.replace(
-                    hour=task.start_time.hour,
-                    minute=task.start_time.minute,
-                    second=0,
-                    microsecond=0,
-                )
-                if preferred > current_time:
-                    # Insert any scheduled breaks that fall before the preferred start
-                    while break_index < len(health_breaks):
-                        next_break = health_breaks[break_index]
-                        if (
-                            next_break.scheduled_time
-                            and current_time <= next_break.scheduled_time < preferred
-                        ):
-                            break_duration = timedelta(minutes=next_break.duration_minutes)
-                            break_start = next_break.scheduled_time
-                            if break_start + break_duration > work_end:
-                                break
-                            scheduled_items.append(ScheduledItem(
-                                start_time=break_start,
-                                end_time=break_start + break_duration,
-                                break_item=next_break,
-                                is_break=True
-                            ))
-                            current_time = break_start + break_duration
-                            last_break_time = current_time
-                            focus_time_accumulated = timedelta(0)
-                            break_index += 1
-                        else:
-                            break
-                    if preferred >= current_time:
-                        current_time = preferred
-            
-            # Check if we need a break before this task
-            time_since_break = current_time - last_break_time
-            if time_since_break.total_seconds() >= self.break_interval_minutes * 60:
-                # Insert a break
-                break_duration = timedelta(minutes=10)
-                if current_time + break_duration > work_end:
-                    break
-                
-                scheduled_items.append(ScheduledItem(
-                    start_time=current_time,
-                    end_time=current_time + break_duration,
-                    break_item=HealthBreak(
-                        type="physical",
-                        duration_minutes=10,
-                        description="Physical break - Stand up, stretch, walk around"
-                    ),
-                    is_break=True
-                ))
-                current_time += break_duration
-                last_break_time = current_time
-                focus_time_accumulated = timedelta(0)
-            
-            # Check if we've exceeded max focus block
-            if focus_time_accumulated.total_seconds() >= self.focus_block_max_hours * 3600:
-                # Mandatory longer break
-                long_break = timedelta(minutes=20)
-                if current_time + long_break > work_end:
-                    break
-                
-                scheduled_items.append(ScheduledItem(
-                    start_time=current_time,
-                    end_time=current_time + long_break,
-                    break_item=HealthBreak(
-                        type="mental",
-                        duration_minutes=20,
-                        description="Extended mental break - You've been focusing hard, take a proper rest"
-                    ),
-                    is_break=True
-                ))
-                current_time += long_break
-                last_break_time = current_time
-                focus_time_accumulated = timedelta(0)
-            
-            # Check if there's a scheduled health break coming up
-            while break_index < len(health_breaks):
-                next_break = health_breaks[break_index]
-                if next_break.scheduled_time and next_break.scheduled_time <= current_time:
-                    # Schedule this break
-                    break_duration = timedelta(minutes=next_break.duration_minutes)
-                    if current_time + break_duration > work_end:
+        def overlaps(start: datetime, end: datetime) -> bool:
+            for occ_start, occ_end in occupied:
+                if start < occ_end and end > occ_start:
+                    return True
+            return False
+
+        def reserve(start: datetime, end: datetime):
+            occupied.append((start, end))
+            occupied.sort(key=lambda x: x[0])
+
+        def next_free_cursor(cursor: datetime, duration: timedelta) -> Optional[datetime]:
+            """Find the earliest time >= cursor where [time, time+duration) is free and within work hours."""
+            t = cursor
+            if t < start_date:
+                t = start_date
+            while t + duration <= work_end:
+                end = t + duration
+                conflict = None
+                for occ_start, occ_end in occupied:
+                    if t < occ_end and end > occ_start:
+                        conflict = occ_end
                         break
-                    
-                    scheduled_items.append(ScheduledItem(
-                        start_time=current_time,
-                        end_time=current_time + break_duration,
-                        break_item=next_break,
-                        is_break=True
-                    ))
-                    current_time += break_duration
-                    last_break_time = current_time
-                    focus_time_accumulated = timedelta(0)
-                    break_index += 1
-                elif next_break.scheduled_time and next_break.scheduled_time < current_time + timedelta(minutes=task.duration_minutes):
-                    # Break would fall during this task
-                    if not task.splittable:
-                        # Keep the task contiguous: place the whole block and
-                        # skip overlapping breaks after scheduling below.
-                        break
+                if conflict is None:
+                    return t
+                t = conflict
+            return None
 
-                    # Splittable: schedule task up to break
-                    task_duration_until_break = (next_break.scheduled_time - current_time).total_seconds() / 60
-                    if task_duration_until_break >= 15:  # Only if meaningful time
-                        scheduled_items.append(ScheduledItem(
-                            start_time=current_time,
-                            end_time=next_break.scheduled_time,
-                            task=task,
-                            is_break=False
-                        ))
-                        focus_time_accumulated += timedelta(minutes=task_duration_until_break)
-                        current_time = next_break.scheduled_time
-                        
-                        # Schedule the break
-                        break_duration = timedelta(minutes=next_break.duration_minutes)
-                        scheduled_items.append(ScheduledItem(
-                            start_time=current_time,
-                            end_time=current_time + break_duration,
-                            break_item=next_break,
-                            is_break=True
-                        ))
-                        current_time += break_duration
-                        last_break_time = current_time
-                        focus_time_accumulated = timedelta(0)
-                        break_index += 1
-                        
-                        # Continue task after break if needed
-                        remaining_task_time = task.duration_minutes - task_duration_until_break
-                        if remaining_task_time > 0:
-                            task.duration_minutes = remaining_task_time
-                        else:
-                            task.completed = True
-                            break
-                    else:
-                        break_index += 1
-                else:
-                    break
-            
-            if task.completed:
+        # --- Pass 1: pin fixed-start tasks ---
+        for task in pinned_tasks:
+            preferred = start_date.replace(
+                hour=task.start_time.hour,
+                minute=task.start_time.minute,
+                second=0,
+                microsecond=0,
+            )
+            duration = timedelta(minutes=task.duration_minutes)
+            if preferred < start_date or preferred + duration > work_end:
                 continue
-
-            # Check if we have time for this task
-            task_duration = timedelta(minutes=task.duration_minutes)
-            if current_time + task_duration > work_end:
-                # Not enough time today, skip or reschedule
-                break
-            
-            # Schedule the task
+            if overlaps(preferred, preferred + duration):
+                # Try the next free slot at/after preferred (still contiguous)
+                alt = next_free_cursor(preferred, duration)
+                if alt is None:
+                    continue
+                preferred = alt
             scheduled_items.append(ScheduledItem(
-                start_time=current_time,
-                end_time=current_time + task_duration,
+                start_time=preferred,
+                end_time=preferred + duration,
                 task=task,
-                is_break=False
+                is_break=False,
             ))
-            focus_time_accumulated += task_duration
-            current_time += task_duration
+            reserve(preferred, preferred + duration)
             task.completed = True
 
-            # Skip any health breaks that would have fallen inside this (unsplittable) block
-            task_end = current_time
-            while break_index < len(health_breaks):
-                next_break = health_breaks[break_index]
-                if next_break.scheduled_time and next_break.scheduled_time < task_end:
-                    break_index += 1
-                else:
-                    break
-        
-        # Add any remaining health breaks
-        while break_index < len(health_breaks):
-            next_break = health_breaks[break_index]
-            if next_break.scheduled_time and next_break.scheduled_time < work_end:
-                if current_time < next_break.scheduled_time:
-                    current_time = next_break.scheduled_time
-                break_duration = timedelta(minutes=next_break.duration_minutes)
-                if current_time + break_duration <= work_end:
+        # --- Pass 2: place health breaks where they don't collide with reserved blocks ---
+        for hb in health_breaks:
+            if not hb.scheduled_time:
+                continue
+            b_start = hb.scheduled_time
+            b_end = b_start + timedelta(minutes=hb.duration_minutes)
+            if b_end > work_end:
+                continue
+            if overlaps(b_start, b_end):
+                continue
+            scheduled_items.append(ScheduledItem(
+                start_time=b_start,
+                end_time=b_end,
+                break_item=hb,
+                is_break=True,
+            ))
+            reserve(b_start, b_end)
+
+        # --- Pass 3: pack flexible tasks into free gaps ---
+        for task in flexible_tasks:
+            remaining = task.duration_minutes
+            cursor = start_date
+
+            while remaining > 0:
+                # Skip past occupied regions
+                if task.splittable:
+                    # Take the next free contiguous chunk (at least 15 min, or whatever remains)
+                    # Find start of next free gap
+                    t = cursor
+                    if t < start_date:
+                        t = start_date
+                    # Advance past any occupation starting at/before t
+                    changed = True
+                    while changed:
+                        changed = False
+                        for occ_start, occ_end in occupied:
+                            if occ_start <= t < occ_end:
+                                t = occ_end
+                                changed = True
+                                break
+                    if t >= work_end:
+                        break
+
+                    # Free until next occupation or work_end
+                    gap_end = work_end
+                    for occ_start, occ_end in occupied:
+                        if occ_start > t:
+                            gap_end = min(gap_end, occ_start)
+                            break
+
+                    available = int((gap_end - t).total_seconds() / 60)
+                    if available < 15 and available < remaining:
+                        cursor = gap_end
+                        continue
+
+                    chunk = min(remaining, available)
+                    if chunk <= 0:
+                        break
+                    chunk_delta = timedelta(minutes=chunk)
                     scheduled_items.append(ScheduledItem(
-                        start_time=current_time,
-                        end_time=current_time + break_duration,
-                        break_item=next_break,
-                        is_break=True
+                        start_time=t,
+                        end_time=t + chunk_delta,
+                        task=task,
+                        is_break=False,
                     ))
-                    current_time += break_duration
-            break_index += 1
-        
+                    reserve(t, t + chunk_delta)
+                    remaining -= chunk
+                    cursor = t + chunk_delta
+                else:
+                    # Unsplittable: need one contiguous free block
+                    duration = timedelta(minutes=remaining)
+                    slot = next_free_cursor(cursor, duration)
+                    if slot is None:
+                        break
+                    scheduled_items.append(ScheduledItem(
+                        start_time=slot,
+                        end_time=slot + duration,
+                        task=task,
+                        is_break=False,
+                    ))
+                    reserve(slot, slot + duration)
+                    remaining = 0
+
+            if remaining <= 0:
+                task.completed = True
+
         self.scheduled_items = sorted(scheduled_items, key=lambda x: x.start_time)
         return self.scheduled_items
     

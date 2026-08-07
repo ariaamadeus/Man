@@ -229,7 +229,8 @@ def google_sync_now(request):
         messages.success(
             request,
             f"Calendar synced — created {result.get('created', 0)}, "
-            f"updated {result.get('updated', 0)}, deleted {result.get('deleted', 0)}.",
+            f"updated {result.get('updated', 0)}, deleted {result.get('deleted', 0)}, "
+            f"unchanged {result.get('skipped', 0)}.",
         )
     elif result.get('skipped'):
         messages.warning(request, f"Sync skipped ({result.get('reason')}). Connect Google Calendar first.")

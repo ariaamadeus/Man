@@ -171,14 +171,27 @@ def _aware(dt: datetime) -> datetime:
     return dt.astimezone(CALENDAR_TZ)
 
 
-def _local_key(item: dict, schedule_date: date) -> str:
-    start = item["start_time"].strftime("%H%M")
-    end = item["end_time"].strftime("%H%M")
-    if item.get("is_break"):
-        kind = item.get("break_type") or "break"
-        return f"{schedule_date.isoformat()}:break:{kind}:{start}-{end}"
-    task_id = item.get("task_id") or "anon"
-    return f"{schedule_date.isoformat()}:task:{task_id}:{start}-{end}"
+def _desired_slots(items: list, schedule_date: date) -> dict:
+    """
+    Stable keys (not wall-clock times) so a reshuffled slot PATCHes one event
+    instead of delete+create for every item.
+    """
+    task_counts: dict[object, int] = {}
+    break_counts: dict[str, int] = {}
+    desired = {}
+    for item in items:
+        if item.get("is_break"):
+            kind = item.get("break_type") or "break"
+            n = break_counts.get(kind, 0)
+            break_counts[kind] = n + 1
+            key = f"{schedule_date.isoformat()}:break:{kind}:{n}"
+        else:
+            tid = item.get("task_id") if item.get("task_id") is not None else "anon"
+            n = task_counts.get(tid, 0)
+            task_counts[tid] = n + 1
+            key = f"{schedule_date.isoformat()}:task:{tid}:{n}"
+        desired[key] = item
+    return desired
 
 
 def _event_body(item: dict) -> dict:
@@ -215,10 +228,37 @@ def _event_body(item: dict) -> dict:
     }
 
 
+def _content_hash(body: dict) -> str:
+    import hashlib
+
+    payload = json.dumps(body, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _execute_with_retry(request, *, retries: int = 4):
+    """Retry Calendar API calls on rate-limit / transient errors."""
+    import time
+    from googleapiclient.errors import HttpError
+
+    delay = 1.5
+    last_exc = None
+    for attempt in range(retries):
+        try:
+            return request.execute()
+        except HttpError as exc:
+            last_exc = exc
+            status = getattr(exc.resp, "status", None)
+            if status not in (403, 429, 500, 503) or attempt == retries - 1:
+                raise
+            time.sleep(delay)
+            delay = min(delay * 2, 20)
+    raise last_exc  # pragma: no cover
+
+
 def sync_user_schedule(user, days_ahead: Optional[int] = None) -> dict:
     """
-    Rebuild schedule for today..today+N and upsert Google Calendar events.
-    Returns a small status dict. No-op if not connected / sync disabled.
+    Rebuild schedule for today..today+N and upsert only changed Google events.
+    Unchanged slots (same content hash) skip the API entirely.
     """
     try:
         connection = GoogleCalendarConnection.objects.get(user=user)
@@ -234,7 +274,6 @@ def sync_user_schedule(user, days_ahead: Optional[int] = None) -> dict:
     days = days_ahead if days_ahead is not None else int(
         getattr(settings, "GOOGLE_CALENDAR_SYNC_DAYS", 7)
     )
-    # Match the UI clock (UTC+7 / Asia/Jakarta).
     today = datetime.now(CALENDAR_TZ).date()
     schedule_settings = ScheduleSettings.get_for_user(user)
     tasks = Task.objects.filter(user=user)
@@ -242,7 +281,7 @@ def sync_user_schedule(user, days_ahead: Optional[int] = None) -> dict:
     try:
         service = _calendar_service(connection)
         calendar_id = connection.calendar_id or "primary"
-        created = updated = deleted = 0
+        created = updated = deleted = skipped = 0
 
         for offset in range(days + 1):
             schedule_date = today + timedelta(days=offset)
@@ -250,10 +289,7 @@ def sync_user_schedule(user, days_ahead: Optional[int] = None) -> dict:
             if not connection.sync_breaks:
                 items = [i for i in items if not i.get("is_break")]
 
-            desired = {}
-            for item in items:
-                desired[_local_key(item, schedule_date)] = item
-
+            desired = _desired_slots(items, schedule_date)
             existing = {
                 m.local_key: m
                 for m in CalendarEventMapping.objects.filter(user=user, schedule_date=schedule_date)
@@ -262,7 +298,12 @@ def sync_user_schedule(user, days_ahead: Optional[int] = None) -> dict:
             for key, mapping in list(existing.items()):
                 if key not in desired:
                     try:
-                        service.events().delete(calendarId=calendar_id, eventId=mapping.google_event_id).execute()
+                        _execute_with_retry(
+                            service.events().delete(
+                                calendarId=calendar_id,
+                                eventId=mapping.google_event_id,
+                            )
+                        )
                     except Exception as exc:  # noqa: BLE001 — event may already be gone
                         logger.info("Delete calendar event %s: %s", mapping.google_event_id, exc)
                     mapping.delete()
@@ -270,39 +311,54 @@ def sync_user_schedule(user, days_ahead: Optional[int] = None) -> dict:
 
             for key, item in desired.items():
                 body = _event_body(item)
+                digest = _content_hash(body)
                 mapping = existing.get(key)
+                if mapping and mapping.content_hash == digest:
+                    skipped += 1
+                    continue
+
                 if mapping:
                     try:
-                        service.events().patch(
-                            calendarId=calendar_id,
-                            eventId=mapping.google_event_id,
-                            body=body,
-                        ).execute()
-                        mapping.save(update_fields=["updated_at"])
+                        _execute_with_retry(
+                            service.events().patch(
+                                calendarId=calendar_id,
+                                eventId=mapping.google_event_id,
+                                body=body,
+                            )
+                        )
+                        mapping.content_hash = digest
+                        mapping.save(update_fields=["content_hash", "updated_at"])
                         updated += 1
                         continue
                     except Exception as exc:  # noqa: BLE001 — recreate if remote event missing
                         logger.info("Patch failed for %s, recreating: %s", mapping.google_event_id, exc)
                         mapping.delete()
-                event = service.events().insert(calendarId=calendar_id, body=body).execute()
+
+                event = _execute_with_retry(
+                    service.events().insert(calendarId=calendar_id, body=body)
+                )
                 CalendarEventMapping.objects.create(
                     user=user,
                     schedule_date=schedule_date,
                     local_key=key,
                     google_event_id=event["id"],
+                    content_hash=digest,
                 )
                 created += 1
 
-        # Drop mappings for days outside the sync window (e.g. yesterday).
-        stale = CalendarEventMapping.objects.filter(user=user).exclude(
-            schedule_date__gte=today,
-            schedule_date__lte=today + timedelta(days=days),
-        )
-        for mapping in stale:
+        # Only drop past days. Do not wipe future mappings when auto-syncing
+        # a shorter window than "Sync now".
+        past = CalendarEventMapping.objects.filter(user=user, schedule_date__lt=today)
+        for mapping in past:
             try:
-                service.events().delete(calendarId=calendar_id, eventId=mapping.google_event_id).execute()
+                _execute_with_retry(
+                    service.events().delete(
+                        calendarId=calendar_id,
+                        eventId=mapping.google_event_id,
+                    )
+                )
             except Exception as exc:  # noqa: BLE001
-                logger.info("Delete stale calendar event %s: %s", mapping.google_event_id, exc)
+                logger.info("Delete past calendar event %s: %s", mapping.google_event_id, exc)
             mapping.delete()
             deleted += 1
 
@@ -310,7 +366,13 @@ def sync_user_schedule(user, days_ahead: Optional[int] = None) -> dict:
         connection.last_sync_ok = True
         connection.last_sync_error = ""
         connection.save(update_fields=["last_synced_at", "last_sync_ok", "last_sync_error", "updated_at"])
-        return {"ok": True, "created": created, "updated": updated, "deleted": deleted}
+        return {
+            "ok": True,
+            "created": created,
+            "updated": updated,
+            "deleted": deleted,
+            "skipped": skipped,
+        }
     except Exception as exc:  # noqa: BLE001
         logger.exception("Google Calendar sync failed for user %s", user.pk)
         connection.last_synced_at = timezone.now()
@@ -321,9 +383,10 @@ def sync_user_schedule(user, days_ahead: Optional[int] = None) -> dict:
 
 
 def sync_user_schedule_safe(user) -> None:
-    """Fire-and-forget wrapper for view hooks — never raises."""
+    """Auto-sync after edits — today only by default to avoid rate limits."""
     try:
-        sync_user_schedule(user)
+        days = int(getattr(settings, "GOOGLE_CALENDAR_AUTO_SYNC_DAYS", 0))
+        sync_user_schedule(user, days_ahead=days)
     except Exception:  # noqa: BLE001
         logger.exception("Unexpected calendar sync error for user %s", getattr(user, "pk", user))
 
