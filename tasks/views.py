@@ -15,7 +15,10 @@ from .whatsapp import get_mqtt_status
 from . import google_calendar as gcal
 
 # Vertical scale for the day timeline (px per minute of the workday).
-TIMELINE_PX_PER_MINUTE = 1.4
+TIMELINE_PX_PER_MINUTE = 2.0
+# Tasks need room for title + Done/Wasted form; short slots still get this floor.
+TASK_BLOCK_MIN_HEIGHT_PX = 110
+BREAK_BLOCK_MIN_HEIGHT_PX = 36
 
 
 def _sync_calendar(user):
@@ -87,7 +90,11 @@ def home(request):
         start_min = start_dt.hour * 60 + start_dt.minute
         offset = max(0, start_min - work_start_min)
         item['top_px'] = round(offset * TIMELINE_PX_PER_MINUTE, 1)
-        item['height_px'] = max(28, round(item['duration_minutes'] * TIMELINE_PX_PER_MINUTE, 1))
+        duration_height = round(item['duration_minutes'] * TIMELINE_PX_PER_MINUTE, 1)
+        if item.get('is_break'):
+            item['height_px'] = max(BREAK_BLOCK_MIN_HEIGHT_PX, duration_height)
+        else:
+            item['height_px'] = max(TASK_BLOCK_MIN_HEIGHT_PX, duration_height)
         item['start_hm'] = start_dt.strftime('%H:%M')
 
     day_logs = (
