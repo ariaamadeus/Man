@@ -2,6 +2,70 @@
 
 {% block title %}{{ title }} – Health-Aware Task Manager{% endblock %}
 
+{% block extra_css %}
+<style>
+  .duration-mode-box {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg);
+  }
+  .duration-mode-box ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .duration-mode-box li {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .duration-mode-box label {
+    margin: 0;
+    font-weight: 500;
+    color: var(--text);
+    font-size: 14px;
+    cursor: pointer;
+  }
+  .duration-mode-box input[type="radio"] {
+    margin-top: 3px;
+    accent-color: var(--accent);
+  }
+  .duration-hint {
+    color: var(--text-muted);
+    font-size: 12px;
+    margin-top: 4px;
+    display: block;
+  }
+  .duration-parts-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 10px;
+  }
+  .duration-parts-grid .form-group {
+    margin-bottom: 0;
+  }
+  .duration-parts-grid label {
+    margin-bottom: 4px;
+  }
+  .duration-total-preview {
+    margin-top: 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--accent);
+  }
+  @media (max-width: 640px) {
+    .duration-parts-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="card">
   <h2>{{ title }}</h2>
@@ -14,9 +78,45 @@
     </div>
 
     <div class="form-group">
+      <label>{{ form.duration_mode.label }}</label>
+      <div class="duration-mode-box">
+        {{ form.duration_mode }}
+      </div>
+      {% if form.duration_mode.errors %}<span style="color:var(--priority-high);font-size:13px;">{{ form.duration_mode.errors.0 }}</span>{% endif %}
+    </div>
+
+    <div class="form-group" id="per-task-duration-fields">
       <label for="{{ form.duration_minutes.id_for_label }}">{{ form.duration_minutes.label }}</label>
       {{ form.duration_minutes }}
+      <span class="duration-hint">Fixed length for this task on the schedule.</span>
       {% if form.duration_minutes.errors %}<span style="color:var(--priority-high);font-size:13px;">{{ form.duration_minutes.errors.0 }}</span>{% endif %}
+    </div>
+
+    <div class="form-group" id="total-budget-duration-fields" style="display:none;">
+      <label>Total duration</label>
+      {{ form.total_duration_minutes }}
+      <div class="duration-parts-grid">
+        <div class="form-group">
+          <label for="{{ form.total_months.id_for_label }}">{{ form.total_months.label }}</label>
+          {{ form.total_months }}
+        </div>
+        <div class="form-group">
+          <label for="{{ form.total_days.id_for_label }}">{{ form.total_days.label }}</label>
+          {{ form.total_days }}
+        </div>
+        <div class="form-group">
+          <label for="{{ form.total_hours.id_for_label }}">{{ form.total_hours.label }}</label>
+          {{ form.total_hours }}
+        </div>
+        <div class="form-group">
+          <label for="{{ form.total_mins.id_for_label }}">{{ form.total_mins.label }}</label>
+          {{ form.total_mins }}
+        </div>
+      </div>
+      <div class="duration-total-preview" id="total-duration-preview">= 0m</div>
+      <span class="duration-hint">Whole time budget. 1 month = 30 days. AI will later adjust how much time goes into each session.</span>
+      {% if form.non_field_errors %}<span style="color:var(--priority-high);font-size:13px;">{{ form.non_field_errors.0 }}</span>{% endif %}
+      {% if form.total_duration_minutes.errors %}<span style="color:var(--priority-high);font-size:13px;">{{ form.total_duration_minutes.errors.0 }}</span>{% endif %}
     </div>
 
     <div class="form-group">
@@ -59,7 +159,7 @@
     <div class="form-group">
       <label for="{{ form.start_time.id_for_label }}">Start time</label>
       {{ form.start_time }}
-      <span style="color:var(--text-muted);font-size:12px;display:block;margin-top:4px;">Optional. Scheduler will try to place the task at this time.</span>
+      <span class="duration-hint">Optional. Scheduler will try to place the task at this time.</span>
       {% if form.start_time.errors %}<span style="color:var(--priority-high);font-size:13px;">{{ form.start_time.errors.0 }}</span>{% endif %}
     </div>
 
@@ -107,6 +207,78 @@
     deadlineEl.value = '';
     deadlineEl.dispatchEvent(new Event('change', { bubbles: true }));
   });
+})();
+
+(function () {
+  var perTaskBox = document.getElementById('per-task-duration-fields');
+  var totalBox = document.getElementById('total-budget-duration-fields');
+  var radios = document.querySelectorAll('input[name="{{ form.duration_mode.html_name }}"]');
+  if (!perTaskBox || !totalBox || !radios.length) return;
+
+  function selectedMode() {
+    for (var i = 0; i < radios.length; i++) {
+      if (radios[i].checked) return radios[i].value;
+    }
+    return 'per_task';
+  }
+
+  function toggleDurationFields() {
+    var mode = selectedMode();
+    var isTotal = mode === 'total_budget';
+    perTaskBox.style.display = isTotal ? 'none' : 'block';
+    totalBox.style.display = isTotal ? 'block' : 'none';
+  }
+
+  radios.forEach(function (radio) {
+    radio.addEventListener('change', toggleDurationFields);
+  });
+  toggleDurationFields();
+})();
+
+(function () {
+  var monthsEl = document.getElementById('{{ form.total_months.auto_id }}');
+  var daysEl = document.getElementById('{{ form.total_days.auto_id }}');
+  var hoursEl = document.getElementById('{{ form.total_hours.auto_id }}');
+  var minsEl = document.getElementById('{{ form.total_mins.auto_id }}');
+  var hiddenEl = document.getElementById('{{ form.total_duration_minutes.auto_id }}');
+  var previewEl = document.getElementById('total-duration-preview');
+  if (!monthsEl || !daysEl || !hoursEl || !minsEl || !previewEl) return;
+
+  var MONTH_MIN = 30 * 24 * 60;
+  var DAY_MIN = 24 * 60;
+  var HOUR_MIN = 60;
+
+  function num(el) {
+    var v = parseInt(el.value, 10);
+    return isNaN(v) || v < 0 ? 0 : v;
+  }
+
+  function formatParts(total) {
+    var months = Math.floor(total / MONTH_MIN);
+    var rem = total % MONTH_MIN;
+    var days = Math.floor(rem / DAY_MIN);
+    rem %= DAY_MIN;
+    var hours = Math.floor(rem / HOUR_MIN);
+    var mins = rem % HOUR_MIN;
+    var parts = [];
+    if (months) parts.push(months + 'mo');
+    if (days) parts.push(days + 'd');
+    if (hours) parts.push(hours + 'h');
+    if (mins || !parts.length) parts.push(mins + 'm');
+    return parts.join(' ');
+  }
+
+  function updatePreview() {
+    var total = num(monthsEl) * MONTH_MIN + num(daysEl) * DAY_MIN + num(hoursEl) * HOUR_MIN + num(minsEl);
+    if (hiddenEl) hiddenEl.value = total || '';
+    previewEl.textContent = '= ' + formatParts(total) + (total ? ' (' + total.toLocaleString() + ' min)' : '');
+  }
+
+  [monthsEl, daysEl, hoursEl, minsEl].forEach(function (el) {
+    el.addEventListener('input', updatePreview);
+    el.addEventListener('change', updatePreview);
+  });
+  updatePreview();
 })();
 </script>
 {% endblock %}

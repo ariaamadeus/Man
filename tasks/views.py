@@ -16,10 +16,10 @@ from .whatsapp import get_mqtt_status
 from . import google_calendar as gcal
 
 # Vertical scale for the day timeline (px per minute of the workday).
+# Heights stay proportional to duration so dense slots do not overlap.
 TIMELINE_PX_PER_MINUTE = 2.0
-# Tasks need room for title + Done/Wasted form; short slots still get this floor.
-TASK_BLOCK_MIN_HEIGHT_PX = 110
-BREAK_BLOCK_MIN_HEIGHT_PX = 36
+# Tiny floor only so 1-minute hydration chips stay clickable/visible.
+BLOCK_MIN_HEIGHT_PX = 14
 
 
 def _redirect_next(request, fallback):
@@ -99,11 +99,10 @@ def home(request):
         offset = max(0, start_min - work_start_min)
         item['top_px'] = round(offset * TIMELINE_PX_PER_MINUTE, 1)
         duration_height = round(item['duration_minutes'] * TIMELINE_PX_PER_MINUTE, 1)
-        if item.get('is_break'):
-            item['height_px'] = max(BREAK_BLOCK_MIN_HEIGHT_PX, duration_height)
-        else:
-            item['height_px'] = max(TASK_BLOCK_MIN_HEIGHT_PX, duration_height)
+        item['height_px'] = max(BLOCK_MIN_HEIGHT_PX, duration_height)
         item['start_hm'] = start_dt.strftime('%H:%M')
+        item['start_min_of_day'] = start_min
+        item['is_compact'] = item['height_px'] < 56
 
     day_logs = (
         TaskTimeLog.objects.filter(user=request.user, schedule_date=schedule_date)
@@ -212,12 +211,13 @@ def task_reschedule(request, pk):
 
     settings = ScheduleSettings.get_for_user(request.user)
     start_min = hour * 60 + minute
-    end_min = start_min + task.remaining_minutes(on_date=schedule_date)
     work_start = settings.work_start_hour * 60
     work_end = settings.work_end_hour * 60
-    if start_min < work_start or end_min > work_end:
+    # Only require the start pin inside work hours. Large total-budget tasks
+    # cannot fit entirely in one day; the scheduler places what fits from here.
+    if start_min < work_start or start_min >= work_end:
         msg = (
-            f'Time must fit within work hours '
+            f'Start time must be within work hours '
             f'({settings.work_start_hour:02d}:00–{settings.work_end_hour:02d}:00).'
         )
         if wants_json:

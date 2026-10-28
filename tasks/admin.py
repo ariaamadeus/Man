@@ -12,13 +12,14 @@ from .models import (
 @admin.register(Task)
 class TaskAdmin(admin.ModelAdmin):
     list_display = [
-        'name', 'user', 'duration_minutes', 'done_minutes', 'wasted_minutes',
+        'name', 'user', 'duration_mode', 'duration_minutes', 'total_duration_minutes',
+        'done_minutes', 'wasted_minutes',
         'priority', 'task_type',
         'schedule_type', 'recurrence_unit', 'recurrence_every',
         'starts_on', 'start_time', 'splittable', 'deadline', 'completed', 'created_at',
     ]
     list_filter = [
-        'priority', 'task_type', 'schedule_type', 'recurrence_unit',
+        'duration_mode', 'priority', 'task_type', 'schedule_type', 'recurrence_unit',
         'splittable', 'completed', 'user', 'starts_on',
     ]
 

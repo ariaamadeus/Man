@@ -10,12 +10,14 @@ from task_manager import HealthAwareTaskManager
 
 def get_manager_from_settings(settings):
     """Build HealthAwareTaskManager from ScheduleSettings model."""
+    # Guard against legacy/misconfigured tiny intervals that flood the day.
+    interval = max(30, int(settings.break_interval_minutes or 90))
     return HealthAwareTaskManager(
         work_start_hour=settings.work_start_hour,
         work_end_hour=settings.work_end_hour,
         focus_block_max_hours=settings.focus_block_max_hours,
-        break_interval_minutes=settings.break_interval_minutes,
-        lunch_duration_minutes=settings.lunch_duration_minutes,
+        break_interval_minutes=interval,
+        lunch_duration_minutes=max(15, int(settings.lunch_duration_minutes or 60)),
         lunch_hour=settings.lunch_hour,
     )
 
@@ -76,22 +78,28 @@ def build_schedule(task_queryset, settings, schedule_date=None):
     eligible_tasks = task_queryset.filter(completed=False).filter(
         Q(starts_on__isnull=True) | Q(starts_on__lte=effective_date)
     )
+    workday_minutes = max(60, (settings.work_end_hour - settings.work_start_hour) * 60)
     for t in eligible_tasks:
         if not _is_task_due_on_date(t, effective_date):
             continue
         remaining = t.remaining_minutes(on_date=effective_date)
         if remaining <= 0:
             continue
+        # Don't dump a multi-day total budget into one day — cap to the workday
+        # so pinning/dragging a start time can still succeed.
+        schedule_minutes = remaining
+        if getattr(t, 'duration_mode', 'per_task') == 'total_budget':
+            schedule_minutes = min(remaining, workday_minutes)
         manager.add_task(
             name=t.name,
-            duration_minutes=remaining,
+            duration_minutes=schedule_minutes,
             priority=t.priority,
             task_type=t.task_type,
             deadline=t.deadline.isoformat() if t.deadline else None,
             description=t.description or "",
             source_id=t.pk,
             start_time=t.start_time,
-            splittable=t.splittable,
+            splittable=t.splittable if t.task_type != 'meeting' else False,
         )
     if schedule_date:
         start = datetime.combine(schedule_date, datetime.min.time()).replace(

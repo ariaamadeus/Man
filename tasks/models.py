@@ -26,6 +26,10 @@ class Task(models.Model):
         ('monthly', 'Monthly'),
         ('yearly', 'Yearly'),
     ]
+    DURATION_MODE_CHOICES = [
+        ('per_task', 'Duration per task'),
+        ('total_budget', 'Total duration (AI adjusts)'),
+    ]
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -33,7 +37,20 @@ class Task(models.Model):
         related_name='tasks',
     )
     name = models.CharField(max_length=200)
-    duration_minutes = models.PositiveIntegerField()
+    duration_minutes = models.PositiveIntegerField(
+        help_text="Current scheduled length for this task (session allocation).",
+    )
+    duration_mode = models.CharField(
+        max_length=20,
+        choices=DURATION_MODE_CHOICES,
+        default='per_task',
+        help_text="per_task = fixed length; total_budget = whole envelope for AI to allocate.",
+    )
+    total_duration_minutes = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Whole time budget when duration_mode is total_budget. AI may split/adjust session lengths.",
+    )
     priority = models.CharField(max_length=10, choices=PRIORITY_CHOICES, default='medium')
     task_type = models.CharField(max_length=20, choices=TASK_TYPE_CHOICES, default='focus')
     schedule_type = models.CharField(max_length=20, choices=SCHEDULE_TYPE_CHOICES, default='one_time')
@@ -75,6 +92,50 @@ class Task(models.Model):
             self.splittable = False
         super().save(*args, **kwargs)
 
+    @property
+    def planned_budget_minutes(self):
+        """Overall planned minutes: total budget if set, otherwise fixed task duration."""
+        if self.duration_mode == 'total_budget' and self.total_duration_minutes:
+            return self.total_duration_minutes
+        return self.duration_minutes
+
+    @staticmethod
+    def split_minutes(total_minutes):
+        """Break minutes into (months, days, hours, minutes). 1 month = 30 days."""
+        total = max(0, int(total_minutes or 0))
+        months = total // (30 * 24 * 60)
+        rem = total % (30 * 24 * 60)
+        days = rem // (24 * 60)
+        rem %= 24 * 60
+        hours = rem // 60
+        minutes = rem % 60
+        return months, days, hours, minutes
+
+    @staticmethod
+    def combine_duration_parts(months=0, days=0, hours=0, minutes=0):
+        """Convert month/day/hour/minute parts to total minutes. 1 month = 30 days."""
+        return (
+            int(months or 0) * 30 * 24 * 60
+            + int(days or 0) * 24 * 60
+            + int(hours or 0) * 60
+            + int(minutes or 0)
+        )
+
+    def format_duration_parts(self, total_minutes=None):
+        """Human-readable duration, e.g. '1mo 2d 3h 15m'."""
+        minutes = self.planned_budget_minutes if total_minutes is None else total_minutes
+        months, days, hours, mins = self.split_minutes(minutes)
+        parts = []
+        if months:
+            parts.append(f'{months}mo')
+        if days:
+            parts.append(f'{days}d')
+        if hours:
+            parts.append(f'{hours}h')
+        if mins or not parts:
+            parts.append(f'{mins}m')
+        return ' '.join(parts)
+
     def done_minutes_for_date(self, on_date):
         """Minutes already done that should reduce scheduling for this date."""
         if self.schedule_type == 'recurring':
@@ -86,7 +147,8 @@ class Task(models.Model):
 
     def remaining_minutes(self, on_date=None):
         done = self.done_minutes_for_date(on_date) if on_date is not None else self.done_minutes
-        return max(0, self.duration_minutes - done)
+        # Until AI allocates session chunks, schedule against the overall budget.
+        return max(0, self.planned_budget_minutes - done)
 
     def wasted_minutes_for_date(self, on_date):
         total = self.time_logs.filter(schedule_date=on_date).aggregate(

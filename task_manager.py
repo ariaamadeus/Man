@@ -122,63 +122,112 @@ class HealthAwareTaskManager:
         return task
     
     def _create_health_breaks(self, start_time: datetime, end_time: datetime) -> List[HealthBreak]:
-        """Generate health breaks between start and end time."""
-        breaks = []
-        current_time = start_time
-        
+        """Generate health breaks between start and end time.
+
+        ``break_interval_minutes`` is the focused work time *between* breaks.
+        Breaks never overlap each other; the next one starts only after the
+        previous break ends plus the work interval.
+        """
+        breaks: List[HealthBreak] = []
+
+        # Clamp so a tiny/misconfigured interval cannot flood the day.
+        physical_mins = 10
+        mental_mins = 15
+        work_interval = max(30, int(self.break_interval_minutes or 90))
+
         # Lunch break
-        lunch_time = current_time.replace(hour=self.lunch_hour, minute=0, second=0, microsecond=0)
+        lunch_time = start_time.replace(hour=self.lunch_hour, minute=0, second=0, microsecond=0)
+        lunch_duration = max(15, int(self.lunch_duration_minutes or 60))
         if start_time <= lunch_time < end_time:
             breaks.append(HealthBreak(
                 type="meal",
-                duration_minutes=self.lunch_duration_minutes,
+                duration_minutes=lunch_duration,
                 description="Lunch break - Step away from your desk, eat mindfully",
-                scheduled_time=lunch_time
+                scheduled_time=lunch_time,
             ))
-        
-        # Regular breaks
-        while current_time < end_time:
-            # Skip if lunch is coming soon
-            next_break_time = current_time + timedelta(minutes=self.break_interval_minutes)
-            if next_break_time < end_time:
-                # Determine break type based on time since last break
+
+        def overlaps_existing(start: datetime, duration: int) -> bool:
+            end = start + timedelta(minutes=duration)
+            for br in breaks:
+                if not br.scheduled_time:
+                    continue
+                br_end = br.scheduled_time + timedelta(minutes=br.duration_minutes)
+                if start < br_end and end > br.scheduled_time:
+                    return True
+            return False
+
+        # Regular breaks: work_interval of focus, then a short break, repeat.
+        cursor = start_time
+        regular_count = 0
+        while True:
+            next_break_time = cursor + timedelta(minutes=work_interval)
+            # Prefer mental every 3rd regular break.
+            if regular_count > 0 and regular_count % 3 == 2:
+                break_type = "mental"
+                break_desc = "Mental break - Deep breathing, meditation, or just rest (10-15 min)"
+                duration = mental_mins
+            else:
                 break_type = "physical"
                 break_desc = "Physical break - Stand up, stretch, walk around (5-10 min)"
-                
-                # Every 3rd break is a mental break
-                if len(breaks) % 3 == 0 and breaks:
-                    break_type = "mental"
-                    break_desc = "Mental break - Deep breathing, meditation, or just rest (10-15 min)"
-                
-                breaks.append(HealthBreak(
-                    type=break_type,
-                    duration_minutes=15 if break_type == "mental" else 10,
-                    description=break_desc,
-                    scheduled_time=next_break_time
-                ))
-                current_time = next_break_time
-            else:
+                duration = physical_mins
+
+            if next_break_time + timedelta(minutes=duration) > end_time:
                 break
-        
-        # Hydration reminders (every 60 minutes, but not during breaks)
+
+            # Push past lunch (or any already-placed break) if we would collide.
+            while overlaps_existing(next_break_time, duration):
+                conflict_end = next_break_time
+                for br in breaks:
+                    if not br.scheduled_time:
+                        continue
+                    br_end = br.scheduled_time + timedelta(minutes=br.duration_minutes)
+                    proposed_end = next_break_time + timedelta(minutes=duration)
+                    if next_break_time < br_end and proposed_end > br.scheduled_time:
+                        conflict_end = max(conflict_end, br_end)
+                if conflict_end == next_break_time:
+                    break
+                # Resume focus after the conflicting break, then take another interval.
+                next_break_time = conflict_end + timedelta(minutes=work_interval)
+                if next_break_time + timedelta(minutes=duration) > end_time:
+                    next_break_time = None
+                    break
+
+            if next_break_time is None:
+                break
+
+            breaks.append(HealthBreak(
+                type=break_type,
+                duration_minutes=duration,
+                description=break_desc,
+                scheduled_time=next_break_time,
+            ))
+            regular_count += 1
+            # Next focus block starts when this break ends.
+            cursor = next_break_time + timedelta(minutes=duration)
+
+        # Hydration reminders (every 60 minutes, not during / near other breaks)
         hydration_time = start_time
         while hydration_time < end_time:
             hydration_time += timedelta(minutes=60)
-            if hydration_time < end_time:
-                # Check if it's not too close to a scheduled break
-                too_close = False
-                for br in breaks:
-                    if br.scheduled_time and abs((hydration_time - br.scheduled_time).total_seconds()) < 300:
-                        too_close = True
-                        break
-                if not too_close:
-                    breaks.append(HealthBreak(
-                        type="hydration",
-                        duration_minutes=1,
-                        description="💧 Hydration reminder - Drink water!",
-                        scheduled_time=hydration_time
-                    ))
-        
+            if hydration_time >= end_time:
+                break
+            too_close = False
+            for br in breaks:
+                if not br.scheduled_time:
+                    continue
+                br_end = br.scheduled_time + timedelta(minutes=br.duration_minutes)
+                # Skip if inside a break or within 5 minutes of one.
+                if br.scheduled_time - timedelta(minutes=5) <= hydration_time <= br_end + timedelta(minutes=5):
+                    too_close = True
+                    break
+            if not too_close:
+                breaks.append(HealthBreak(
+                    type="hydration",
+                    duration_minutes=1,
+                    description="💧 Hydration reminder - Drink water!",
+                    scheduled_time=hydration_time,
+                ))
+
         return sorted(breaks, key=lambda x: x.scheduled_time if x.scheduled_time else datetime.max)
     
     def schedule_tasks(self, start_date: Optional[datetime] = None) -> List[ScheduledItem]:
@@ -250,15 +299,55 @@ class HealthAwareTaskManager:
                 second=0,
                 microsecond=0,
             )
-            duration = timedelta(minutes=task.duration_minutes)
-            if preferred < start_date or preferred + duration > work_end:
+            if preferred < start_date:
+                preferred = start_date
+            if preferred >= work_end:
                 continue
+
+            # Place as much as fits from the pin; leftover stays for pass 3.
+            wanted = task.duration_minutes
+            max_mins = int((work_end - preferred).total_seconds() / 60)
+            place_mins = min(wanted, max_mins)
+            if place_mins < 1:
+                continue
+            duration = timedelta(minutes=place_mins)
+
             if overlaps(preferred, preferred + duration):
-                # Try the next free slot at/after preferred (still contiguous)
-                alt = next_free_cursor(preferred, duration)
-                if alt is None:
+                # Shrink to the free gap at preferred, or find next free slot.
+                gap_end = work_end
+                for occ_start, occ_end in occupied:
+                    if occ_start > preferred:
+                        gap_end = min(gap_end, occ_start)
+                        break
+                    if occ_start <= preferred < occ_end:
+                        preferred = occ_end
+                        gap_end = work_end
+                        for occ2_s, occ2_e in occupied:
+                            if occ2_s > preferred:
+                                gap_end = min(gap_end, occ2_s)
+                                break
+                        break
+                if preferred >= work_end:
                     continue
-                preferred = alt
+                place_mins = min(wanted, int((gap_end - preferred).total_seconds() / 60))
+                if place_mins < 1:
+                    alt = next_free_cursor(preferred, timedelta(minutes=min(wanted, 15)))
+                    if alt is None:
+                        continue
+                    preferred = alt
+                    place_mins = min(
+                        wanted,
+                        int((work_end - preferred).total_seconds() / 60),
+                    )
+                    for occ_start, occ_end in occupied:
+                        if occ_start > preferred:
+                            place_mins = min(
+                                place_mins,
+                                int((occ_start - preferred).total_seconds() / 60),
+                            )
+                            break
+                duration = timedelta(minutes=max(1, place_mins))
+
             scheduled_items.append(ScheduledItem(
                 start_time=preferred,
                 end_time=preferred + duration,
@@ -266,7 +355,21 @@ class HealthAwareTaskManager:
                 is_break=False,
             ))
             reserve(preferred, preferred + duration)
-            task.completed = True
+            placed = int(duration.total_seconds() / 60)
+            if placed >= task.duration_minutes:
+                task.completed = True
+            else:
+                # Remainder can pack into later gaps as a flexible task.
+                task.duration_minutes -= placed
+                task.start_time = None
+                flexible_tasks.append(task)
+                flexible_tasks.sort(
+                    key=lambda t: (
+                        0 if t.priority == TaskPriority.HIGH else (1 if t.priority == TaskPriority.MEDIUM else 2),
+                        t.deadline if t.deadline else "9999-12-31",
+                        t.duration_minutes,
+                    ),
+                )
 
         # --- Pass 2: place health breaks where they don't collide with reserved blocks ---
         for hb in health_breaks:
