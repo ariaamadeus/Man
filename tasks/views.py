@@ -8,6 +8,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.urls import reverse
 from django.http import HttpResponseRedirect, JsonResponse
+from django.utils.http import url_has_allowed_host_and_scheme
 from .models import Task, TaskTimeLog, ScheduleSettings, GoogleCalendarConnection
 from .forms import TaskForm, ScheduleSettingsForm
 from .services import build_schedule
@@ -21,8 +22,15 @@ TASK_BLOCK_MIN_HEIGHT_PX = 110
 BREAK_BLOCK_MIN_HEIGHT_PX = 36
 
 
-def _sync_calendar(user):
-    gcal.sync_user_schedule_safe(user)
+def _redirect_next(request, fallback):
+    next_url = (request.POST.get('next') or '').strip()
+    if next_url and url_has_allowed_host_and_scheme(
+        next_url,
+        allowed_hosts={request.get_host()},
+        require_https=request.is_secure(),
+    ):
+        return redirect(next_url)
+    return redirect(fallback)
 
 
 @login_required
@@ -118,6 +126,7 @@ def home(request):
         'work_start_min': work_start_min,
         'work_end_min': work_end_min,
         'hour_marks': hour_marks,
+        'gcal_status': gcal.get_connection_status(request.user),
     })
 
 
@@ -129,7 +138,6 @@ def task_add(request):
             task = form.save(commit=False)
             task.user = request.user
             task.save()
-            _sync_calendar(request.user)
             messages.success(request, 'Task added.')
             return redirect('tasks:home')
     else:
@@ -144,7 +152,6 @@ def task_edit(request, pk):
         form = TaskForm(request.POST, instance=task)
         if form.is_valid():
             form.save()
-            _sync_calendar(request.user)
             messages.success(request, 'Task updated.')
             return redirect('tasks:home')
     else:
@@ -157,7 +164,6 @@ def task_edit(request, pk):
 def task_delete(request, pk):
     task = get_object_or_404(Task, pk=pk, user=request.user)
     task.delete()
-    _sync_calendar(request.user)
     messages.success(request, 'Task deleted.')
     return redirect('tasks:home')
 
@@ -168,7 +174,6 @@ def task_toggle_done(request, pk):
     task = get_object_or_404(Task, pk=pk, user=request.user)
     task.completed = not task.completed
     task.save()
-    _sync_calendar(request.user)
     messages.success(request, 'Task marked as done.' if task.completed else 'Task marked as not done.')
     return redirect('tasks:home')
 
@@ -222,7 +227,6 @@ def task_reschedule(request, pk):
 
     task.start_time = new_time
     task.save(update_fields=['start_time'])
-    _sync_calendar(request.user)
 
     msg = f'Rescheduled “{task.name}” to {new_time.strftime("%H:%M")}.'
     if wants_json:
@@ -300,7 +304,6 @@ def task_log_progress(request, pk):
         task.start_time = None
 
     task.save()
-    _sync_calendar(request.user)
 
     if task.completed:
         messages.success(
@@ -333,8 +336,7 @@ def settings_view(request):
                 if connection.sync_breaks != sync_breaks:
                     connection.sync_breaks = sync_breaks
                     connection.save(update_fields=['sync_breaks', 'updated_at'])
-            _sync_calendar(request.user)
-            messages.success(request, 'Settings saved.')
+            messages.success(request, 'Settings saved. Use Update calendar when you want Google Calendar to match.')
             return redirect('tasks:home')
     else:
         form = ScheduleSettingsForm(instance=schedule_settings)
@@ -413,14 +415,10 @@ def google_callback(request):
         connection.sync_enabled = True
         connection.last_sync_error = ''
         connection.save()
-        result = gcal.sync_user_schedule(request.user)
-        if result.get('ok'):
-            messages.success(request, 'Google Calendar connected and schedule synced.')
-        else:
-            messages.warning(
-                request,
-                f"Connected, but initial sync failed: {result.get('error') or result.get('reason')}",
-            )
+        messages.success(
+            request,
+            'Google Calendar connected. Use Update calendar when you want to push your schedule.',
+        )
     except Exception as exc:  # noqa: BLE001
         messages.error(request, f'Failed to connect Google Calendar: {exc}')
     return redirect('tasks:settings')
@@ -450,4 +448,4 @@ def google_sync_now(request):
         messages.warning(request, f"Sync skipped ({result.get('reason')}). Connect Google Calendar first.")
     else:
         messages.error(request, f"Sync failed: {result.get('error', 'unknown error')}")
-    return redirect('tasks:settings')
+    return _redirect_next(request, 'tasks:settings')

@@ -189,13 +189,25 @@
 <div class="card">
   <h2>Current schedule</h2>
   <p style="color:var(--text-muted);margin-bottom:12px;">Realtime: <strong id="live-time">{{ now|time:"H:i:s" }}</strong> · Viewing schedule for <strong>{% if schedule_date == today %}today{% else %}{{ schedule_date|date:"l j F Y" }}{% endif %}</strong></p>
-  <form method="get" action="{% url 'tasks:home' %}" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-    <input type="date" name="date" value="{{ schedule_date|date:'Y-m-d' }}" class="form-input custom-date-picker" style="width:auto;">
-    <button type="submit" class="btn btn-primary">Update schedule</button>
-    {% if schedule_date != today %}
-    <a href="{% url 'tasks:home' %}" class="btn btn-secondary">Show today</a>
+  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+    <form method="get" action="{% url 'tasks:home' %}" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0;">
+      <input type="date" name="date" value="{{ schedule_date|date:'Y-m-d' }}" class="form-input custom-date-picker" style="width:auto;">
+      <button type="submit" class="btn btn-primary">Update schedule</button>
+      {% if schedule_date != today %}
+      <a href="{% url 'tasks:home' %}" class="btn btn-secondary">Show today</a>
+      {% endif %}
+    </form>
+    {% if gcal_status.connected %}
+    <form method="post" action="{% url 'tasks:google_sync_now' %}" style="margin:0;">
+      {% csrf_token %}
+      <input type="hidden" name="next" value="{{ request.get_full_path }}">
+      <button type="submit" class="btn btn-secondary">Update calendar</button>
+    </form>
     {% endif %}
-  </form>
+  </div>
+  {% if gcal_status.connected %}
+  <p style="color:var(--text-muted);font-size:13px;margin:10px 0 0;">Google Calendar updates only when you press Update calendar.</p>
+  {% endif %}
 </div>
 
 {% if schedule_items %}

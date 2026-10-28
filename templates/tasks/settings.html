@@ -50,9 +50,9 @@
   </p>
   {% elif gcal_status.connected %}
   <p style="color:var(--text-muted);margin-bottom:12px;">
-    Connected. When you add, edit, complete, or delete tasks (or change work settings),
-    your health-aware schedule for the next week is pushed to Google Calendar
-    (<span class="mono">{{ gcal_status.calendar_id }}</span>).
+    Connected to <span class="mono">{{ gcal_status.calendar_id }}</span>.
+    Task and settings changes stay in this app until you press
+    <strong>Update calendar</strong>. That pushes the next week of your schedule.
   </p>
   <p style="margin:0 0 16px;">
     {% if gcal_status.last_synced_at %}
@@ -67,7 +67,8 @@
   </p>
   <div style="display:flex;gap:8px;flex-wrap:wrap;">
     <form method="post" action="{% url 'tasks:google_sync_now' %}" style="margin:0;">{% csrf_token %}
-      <button type="submit" class="btn btn-primary">Sync now</button>
+      <input type="hidden" name="next" value="{{ request.get_full_path }}">
+      <button type="submit" class="btn btn-primary">Update calendar</button>
     </form>
     <form method="post" action="{% url 'tasks:google_disconnect' %}" style="margin:0;" onsubmit="return confirm('Disconnect and remove synced events from Google Calendar?');">{% csrf_token %}
       <button type="submit" class="btn btn-secondary">Disconnect</button>
@@ -75,7 +76,7 @@
   </div>
   {% else %}
   <p style="color:var(--text-muted);margin-bottom:16px;">
-    Connect your Google account so schedule changes automatically appear on your calendar.
+    Connect your Google account, then press Update calendar whenever you want the schedule pushed.
   </p>
   <a href="{% url 'tasks:google_connect' %}" class="btn btn-primary">Connect Google Calendar</a>
   {% endif %}

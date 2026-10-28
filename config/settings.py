@@ -138,7 +138,7 @@ GOOGLE_REDIRECT_URI = os.environ.get(
     "",
 ).strip() or _gcal_file_redirect or "http://127.0.0.1:8000/google/callback/"
 GOOGLE_CREDENTIALS_FILE = str(BASE_DIR / "credentials.json")
-# Full window for "Sync now". Automatic sync after edits uses AUTO_SYNC_DAYS (today only by default).
+# Days pushed when you press "Update calendar". The app does not sync on its own.
 GOOGLE_CALENDAR_SYNC_DAYS = int(os.environ.get("GOOGLE_CALENDAR_SYNC_DAYS", "7").strip() or "7")
 GOOGLE_CALENDAR_AUTO_SYNC_DAYS = int(os.environ.get("GOOGLE_CALENDAR_AUTO_SYNC_DAYS", "0").strip() or "0")
 GOOGLE_CALENDAR_TIMEZONE = os.environ.get("GOOGLE_CALENDAR_TIMEZONE", "Asia/Jakarta").strip() or "Asia/Jakarta"

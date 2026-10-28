@@ -2,8 +2,7 @@
 Sync the health-aware schedule to Google Calendar.
 
 Tasks themselves have no fixed times — only build_schedule() produces timed
-blocks. After task/settings mutations we rebuild upcoming days and upsert
-matching Google Calendar events.
+blocks. Sync runs only when you press Update calendar.
 """
 from __future__ import annotations
 
@@ -383,7 +382,7 @@ def sync_user_schedule(user, days_ahead: Optional[int] = None) -> dict:
 
 
 def sync_user_schedule_safe(user) -> None:
-    """Auto-sync after edits — today only by default to avoid rate limits."""
+    """Optional short-window sync. The web app does not call this after edits."""
     try:
         days = int(getattr(settings, "GOOGLE_CALENDAR_AUTO_SYNC_DAYS", 0))
         sync_user_schedule(user, days_ahead=days)
