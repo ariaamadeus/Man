@@ -199,6 +199,11 @@ class TaskTimeLog(models.Model):
 
 class ScheduleSettings(models.Model):
     """Work hours and health-break parameters for one user."""
+    THEME_CHOICES = [
+        ('dark', 'Dark'),
+        ('light', 'Light'),
+    ]
+
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -210,6 +215,12 @@ class ScheduleSettings(models.Model):
     break_interval_minutes = models.PositiveIntegerField(default=90)
     lunch_duration_minutes = models.PositiveIntegerField(default=60)
     lunch_hour = models.PositiveSmallIntegerField(default=13)
+    theme = models.CharField(
+        max_length=10,
+        choices=THEME_CHOICES,
+        default='dark',
+        help_text='UI color theme.',
+    )
 
     class Meta:
         verbose_name_plural = 'Schedule settings'
@@ -228,6 +239,7 @@ class ScheduleSettings(models.Model):
                 'break_interval_minutes': 90,
                 'lunch_duration_minutes': 60,
                 'lunch_hour': 13,
+                'theme': 'dark',
             },
         )
         return obj
@@ -269,9 +281,16 @@ class GoogleCalendarConnection(models.Model):
         default=True,
         help_text="Also push lunch/health breaks as calendar events",
     )
+    pull_enabled = models.BooleanField(
+        default=True,
+        help_text="Automatically pull Google Calendar events into this app as busy time.",
+    )
     last_synced_at = models.DateTimeField(null=True, blank=True)
     last_sync_ok = models.BooleanField(null=True, blank=True)
     last_sync_error = models.TextField(blank=True)
+    last_pulled_at = models.DateTimeField(null=True, blank=True)
+    last_pull_ok = models.BooleanField(null=True, blank=True)
+    last_pull_error = models.TextField(blank=True)
     connected_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -311,3 +330,38 @@ class CalendarEventMapping(models.Model):
 
     def __str__(self):
         return f"{self.local_key} → {self.google_event_id}"
+
+
+class ImportedCalendarEvent(models.Model):
+    """External Google Calendar event treated as busy time in this app."""
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='imported_calendar_events',
+    )
+    google_event_id = models.CharField(max_length=256)
+    calendar_id = models.CharField(max_length=256, default='primary')
+    summary = models.CharField(max_length=500, blank=True)
+    description = models.TextField(blank=True)
+    start_at = models.DateTimeField()
+    end_at = models.DateTimeField()
+    is_all_day = models.BooleanField(default=False)
+    status = models.CharField(max_length=32, default='confirmed')
+    schedule_date = models.DateField(
+        help_text="Local calendar date (app timezone) for day queries.",
+    )
+    etag = models.CharField(max_length=128, blank=True)
+    content_hash = models.CharField(max_length=64, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = [('user', 'google_event_id')]
+        indexes = [
+            models.Index(fields=['user', 'schedule_date']),
+            models.Index(fields=['user', 'start_at']),
+        ]
+        ordering = ['start_at']
+
+    def __str__(self):
+        return f"{self.summary or self.google_event_id} @ {self.schedule_date}"

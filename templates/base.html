@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="{{ ui_theme|default:'dark' }}" style="color-scheme: {% if ui_theme == 'light' %}light{% else %}dark{% endif %};">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
-    :root {
+    :root, [data-theme="dark"] {
       --bg: #0f1419;
       --surface: #1a2332;
       --surface-hover: #243044;
@@ -17,6 +17,7 @@
       --text-muted: #8b9cb3;
       --accent: #3fb950;
       --accent-dim: #238636;
+      --on-accent: #0f1419;
       --break-physical: #58a6ff;
       --break-mental: #a371f7;
       --break-meal: #f0883e;
@@ -26,6 +27,31 @@
       --priority-low: #3fb950;
       --radius: 10px;
       --shadow: 0 4px 20px rgba(0,0,0,0.3);
+      --danger-bg: rgba(248,81,73,0.2);
+      --success-bg: rgba(63,185,80,0.15);
+      --error-bg: rgba(248,81,73,0.15);
+    }
+    [data-theme="light"] {
+      --bg: #eef2f6;
+      --surface: #ffffff;
+      --surface-hover: #e7edf4;
+      --border: #cfd8e3;
+      --text: #152033;
+      --text-muted: #5b6b7f;
+      --accent: #2da44e;
+      --accent-dim: #1a7f37;
+      --on-accent: #ffffff;
+      --break-physical: #1f6feb;
+      --break-mental: #8250df;
+      --break-meal: #bf5700;
+      --break-hydration: #0891b2;
+      --priority-high: #cf222e;
+      --priority-medium: #9a6700;
+      --priority-low: #1a7f37;
+      --shadow: 0 4px 18px rgba(21,32,51,0.08);
+      --danger-bg: rgba(207,34,46,0.12);
+      --success-bg: rgba(45,164,78,0.12);
+      --error-bg: rgba(207,34,46,0.12);
     }
     * { box-sizing: border-box; }
     body {
@@ -80,9 +106,9 @@
     }
     .btn-primary {
       background: var(--accent);
-      color: var(--bg);
+      color: var(--on-accent);
     }
-    .btn-primary:hover { background: #56d364; }
+    .btn-primary:hover { filter: brightness(1.08); }
     .btn-secondary {
       background: var(--surface);
       color: var(--text);
@@ -90,10 +116,10 @@
     }
     .btn-secondary:hover { background: var(--surface-hover); }
     .btn-danger {
-      background: rgba(248,81,73,0.2);
+      background: var(--danger-bg);
       color: var(--priority-high);
     }
-    .btn-danger:hover { background: rgba(248,81,73,0.35); }
+    .btn-danger:hover { filter: brightness(0.96); }
     .card {
       background: var(--surface);
       border: 1px solid var(--border);
@@ -131,8 +157,8 @@
       border-radius: var(--radius);
       margin-bottom: 8px;
     }
-    .message.success { background: rgba(63,185,80,0.15); color: var(--accent); }
-    .message.error { background: rgba(248,81,73,0.15); color: var(--priority-high); }
+    .message.success { background: var(--success-bg); color: var(--accent); }
+    .message.error { background: var(--error-bg); color: var(--priority-high); }
     .mono { font-family: 'JetBrains Mono', monospace; }
 
     /* Custom calendar modal */

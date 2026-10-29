@@ -43,6 +43,11 @@
     padding-left: 14px;
     opacity: 0.95;
   }
+  .schedule-card.is-external {
+    padding-left: 14px;
+    border-style: dashed;
+    background: color-mix(in srgb, var(--accent) 8%, var(--bg));
+  }
   .schedule-card.is-task {
     touch-action: none;
   }
@@ -262,7 +267,10 @@
     {% endif %}
   </div>
   {% if gcal_status.connected %}
-  <p style="color:var(--text-muted);font-size:13px;margin:10px 0 0;">Google Calendar updates only when you press Update calendar.</p>
+  <p style="color:var(--text-muted);font-size:13px;margin:10px 0 0;">
+    Google events are pulled automatically and block busy time.
+    Press <strong>Update calendar</strong> only when you want to push this app’s schedule to Google.
+  </p>
   {% endif %}
 </div>
 
@@ -281,8 +289,8 @@
   >
     {% for item in schedule_items %}
     <div
-      class="schedule-card {% if item.is_break %}is-break break-{{ item.break_type }}{% else %}is-task{% if schedule_date == today and now >= item.start_time and now <= item.end_time %} schedule-item-current{% endif %}{% endif %}"
-      {% if not item.is_break %}
+      class="schedule-card {% if item.is_external %}is-external{% elif item.is_break %}is-break break-{{ item.break_type }}{% else %}is-task{% if schedule_date == today and now >= item.start_time and now <= item.end_time %} schedule-item-current{% endif %}{% endif %}"
+      {% if not item.is_break and not item.is_external and item.task_id %}
       data-task-id="{{ item.task_id }}"
       data-duration="{{ item.duration_minutes }}"
       data-remaining="{% if item.remaining_total is not None %}{{ item.remaining_total }}{% else %}{{ item.duration_minutes }}{% endif %}"
@@ -290,7 +298,7 @@
       data-reschedule-url="{% url 'tasks:task_reschedule' item.task_id %}"
       {% endif %}
     >
-      {% if not item.is_break %}
+      {% if not item.is_break and not item.is_external %}
       <span class="drag-handle" title="Drag to reschedule" data-drag-handle>⠿</span>
       {% endif %}
       <div class="block-time">
@@ -300,7 +308,14 @@
         <span style="color:var(--accent);">● Now</span>
         {% endif %}
       </div>
-      {% if item.is_break %}
+      {% if item.is_external %}
+        <div class="block-title">
+          <span class="meta-pill">Google</span> {{ item.task_name }}
+        </div>
+        {% if item.task_description %}
+        <div style="font-size:12px;color:var(--text-muted);margin-top:4px;">{{ item.task_description|truncatechars:160 }}</div>
+        {% endif %}
+      {% elif item.is_break %}
         <div class="block-title">
           {% if item.break_type == 'physical' %}🏃 Break{% endif %}
           {% if item.break_type == 'mental' %}🧘 Mental break{% endif %}
@@ -370,7 +385,7 @@
 {% endif %}
 {% else %}
 <div class="card">
-  <p style="color:var(--text-muted);">No tasks yet, or all tasks are completed. <a href="{% url 'tasks:task_add' %}">Add a task</a> to generate a health-aware schedule.</p>
+  <p style="color:var(--text-muted);">No schedule for this day yet. <a href="{% url 'tasks:task_add' %}">Add a task</a>, or connect Google Calendar so external events appear as busy time.</p>
 </div>
 {% endif %}
 

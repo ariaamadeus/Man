@@ -147,11 +147,13 @@ class ScheduleSettingsForm(forms.ModelForm):
     class Meta:
         model = ScheduleSettings
         fields = [
+            'theme',
             'work_start_hour', 'work_end_hour',
             'focus_block_max_hours', 'break_interval_minutes',
             'lunch_duration_minutes', 'lunch_hour',
         ]
         widgets = {
+            'theme': forms.Select(attrs={'class': 'form-select'}),
             'work_start_hour': forms.NumberInput(attrs={'class': 'form-input', 'min': 0, 'max': 23}),
             'work_end_hour': forms.NumberInput(attrs={'class': 'form-input', 'min': 0, 'max': 23}),
             'focus_block_max_hours': forms.NumberInput(attrs={'class': 'form-input', 'min': 0.5, 'step': 0.5}),
@@ -164,7 +166,11 @@ class ScheduleSettingsForm(forms.ModelForm):
             'lunch_duration_minutes': forms.NumberInput(attrs={'class': 'form-input', 'min': 15}),
             'lunch_hour': forms.NumberInput(attrs={'class': 'form-input', 'min': 0, 'max': 23}),
         }
+        labels = {
+            'theme': 'Theme',
+        }
         help_texts = {
+            'theme': 'Choose light or dark appearance for the app.',
             'break_interval_minutes': (
                 'Minutes of focused work between health breaks. '
                 'Minimum 30 so breaks do not stack on top of each other.'

@@ -230,13 +230,19 @@ class HealthAwareTaskManager:
 
         return sorted(breaks, key=lambda x: x.scheduled_time if x.scheduled_time else datetime.max)
     
-    def schedule_tasks(self, start_date: Optional[datetime] = None) -> List[ScheduledItem]:
+    def schedule_tasks(
+        self,
+        start_date: Optional[datetime] = None,
+        busy_slots: Optional[List[tuple]] = None,
+    ) -> List[ScheduledItem]:
         """
         Schedule all tasks with health breaks integrated.
-        Tasks with a start_time are pinned to that clock time and scheduled first.
+        busy_slots (e.g. Google Calendar) are reserved first and never moved.
+        Tasks with a start_time are pinned to that clock time and scheduled next.
         Meetings / unsplittable tasks are never split around breaks.
         """
-        if not self.tasks:
+        busy_slots = list(busy_slots or [])
+        if not self.tasks and not busy_slots:
             return []
 
         if start_date is None:
@@ -245,7 +251,7 @@ class HealthAwareTaskManager:
                 start_date = start_date + timedelta(days=1)
 
         work_end = start_date.replace(hour=self.work_end_hour, minute=0, second=0, microsecond=0)
-        health_breaks = self._create_health_breaks(start_date, work_end)
+        health_breaks = self._create_health_breaks(start_date, work_end) if self.tasks else []
 
         pinned_tasks = sorted(
             [t for t in self.tasks if not t.completed and t.start_time is not None],
@@ -260,7 +266,7 @@ class HealthAwareTaskManager:
             ),
         )
 
-        # Occupied intervals: (start, end) — pinned tasks + placed breaks that must stay
+        # Occupied intervals: (start, end) — external busy + pinned tasks + breaks
         occupied: List[tuple] = []
         scheduled_items: List[ScheduledItem] = []
 
@@ -273,6 +279,21 @@ class HealthAwareTaskManager:
         def reserve(start: datetime, end: datetime):
             occupied.append((start, end))
             occupied.sort(key=lambda x: x[0])
+
+        # Pass 0 — external busy (Google Calendar, etc.)
+        day_start = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
+        day_end = day_start + timedelta(days=1)
+        for busy_start, busy_end in busy_slots:
+            if busy_end <= day_start or busy_start >= day_end:
+                continue
+            # Clip all-day / multi-day events to the workday window when possible
+            clipped_start = max(busy_start, start_date)
+            clipped_end = min(busy_end, work_end)
+            if clipped_end > clipped_start:
+                reserve(clipped_start, clipped_end)
+            elif busy_start < busy_end:
+                # Event outside work hours still occupies its native window
+                reserve(busy_start, busy_end)
 
         def next_free_cursor(cursor: datetime, duration: timedelta) -> Optional[datetime]:
             """Find the earliest time >= cursor where [time, time+duration) is free and within work hours."""

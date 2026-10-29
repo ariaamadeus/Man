@@ -5,14 +5,15 @@
 {% block content %}
 <div class="card">
   <h2>Work & health settings</h2>
-  <p style="color:var(--text-muted);margin-bottom:16px;">Adjust work hours and break frequency. Your schedule is built around these values.</p>
+  <p style="color:var(--text-muted);margin-bottom:16px;">Adjust theme, work hours, and break frequency. Your schedule is built around these values.</p>
   <form method="post" action="">
     {% csrf_token %}
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:16px;">
       {% for field in form %}
-      <div class="form-group">
+      <div class="form-group"{% if field.name == 'theme' %} style="grid-column:1/-1;max-width:280px;"{% endif %}>
         <label for="{{ field.id_for_label }}">{{ field.label }}</label>
         {{ field }}
+        {% if field.help_text %}<span style="color:var(--text-muted);font-size:12px;display:block;margin-top:4px;">{{ field.help_text }}</span>{% endif %}
         {% if field.errors %}<span style="color:var(--priority-high);font-size:13px;">{{ field.errors.0 }}</span>{% endif %}
       </div>
       {% endfor %}
@@ -51,18 +52,30 @@
   {% elif gcal_status.connected %}
   <p style="color:var(--text-muted);margin-bottom:12px;">
     Connected to <span class="mono">{{ gcal_status.calendar_id }}</span>.
-    Task and settings changes stay in this app until you press
-    <strong>Update calendar</strong>. That pushes the next week of your schedule.
+    Events are <strong>pulled automatically</strong> and block busy time in this app
+    (local tasks reshuffle around them). Press <strong>Update calendar</strong>
+    only when you want to push this app’s schedule to Google.
+  </p>
+  <p style="margin:0 0 8px;">
+    {% if gcal_status.last_pulled_at %}
+      {% if gcal_status.last_pull_ok %}
+        <span style="color:var(--accent);">● Reading calendar</span> — last pull at {{ gcal_status.last_pulled_at|date:"H:i" }} on {{ gcal_status.last_pulled_at|date:"M j, Y" }}.
+      {% else %}
+        <span style="color:var(--priority-high);">● Pull error</span> — {{ gcal_status.last_pull_error|truncatechars:160 }}
+      {% endif %}
+    {% else %}
+      <span style="color:var(--text-muted);">● Connected</span> — waiting for first calendar pull.
+    {% endif %}
   </p>
   <p style="margin:0 0 16px;">
     {% if gcal_status.last_synced_at %}
       {% if gcal_status.last_sync_ok %}
-        <span style="color:var(--accent);">● Synced</span> — last sync at {{ gcal_status.last_synced_at|date:"H:i" }} on {{ gcal_status.last_synced_at|date:"M j, Y" }}.
+        <span style="color:var(--accent);">● Pushed</span> — last push at {{ gcal_status.last_synced_at|date:"H:i" }} on {{ gcal_status.last_synced_at|date:"M j, Y" }}.
       {% else %}
-        <span style="color:var(--priority-high);">● Sync error</span> — {{ gcal_status.last_sync_error|truncatechars:160 }}
+        <span style="color:var(--priority-high);">● Push error</span> — {{ gcal_status.last_sync_error|truncatechars:160 }}
       {% endif %}
     {% else %}
-      <span style="color:var(--text-muted);">● Connected</span> — waiting for first sync.
+      <span style="color:var(--text-muted);">● Push</span> — not pushed yet (optional).
     {% endif %}
   </p>
   <div style="display:flex;gap:8px;flex-wrap:wrap;">
@@ -76,7 +89,8 @@
   </div>
   {% else %}
   <p style="color:var(--text-muted);margin-bottom:16px;">
-    Connect your Google account, then press Update calendar whenever you want the schedule pushed.
+    Connect your Google account to automatically read calendar events into this app.
+    Update calendar remains optional for pushing this app’s schedule out.
   </p>
   <a href="{% url 'tasks:google_connect' %}" class="btn btn-primary">Connect Google Calendar</a>
   {% endif %}

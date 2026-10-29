@@ -52,13 +52,15 @@ def home(request):
     else:
         schedule_date = today
 
+    # Pull Google events on a short throttle so the day always reflects the calendar.
+    gcal.maybe_pull_user_events(request.user)
+
     task_qs = Task.objects.filter(user=request.user)
     schedule_items = []
     health_summary = {}
-    if task_qs.filter(completed=False).exists():
-        schedule_items, health_summary = build_schedule(
-            task_qs, schedule_settings, schedule_date=schedule_date
-        )
+    schedule_items, health_summary = build_schedule(
+        task_qs, schedule_settings, schedule_date=schedule_date, user=request.user
+    )
 
     # Attach per-task progress/waste for the viewed day (for schedule + list UI).
     task_progress = {}
@@ -413,12 +415,22 @@ def google_callback(request):
         connection, _ = GoogleCalendarConnection.objects.get_or_create(user=request.user)
         connection.token_json = json.dumps(token_data)
         connection.sync_enabled = True
+        connection.pull_enabled = True
         connection.last_sync_error = ''
+        connection.last_pull_error = ''
         connection.save()
-        messages.success(
-            request,
-            'Google Calendar connected. Use Update calendar when you want to push your schedule.',
-        )
+        pull = gcal.pull_user_events(request.user)
+        if pull.get('ok'):
+            messages.success(
+                request,
+                'Google Calendar connected. Events are pulled automatically; '
+                'use Update calendar when you want to push this app’s schedule.',
+            )
+        else:
+            messages.success(
+                request,
+                'Google Calendar connected. Use Update calendar to push this app’s schedule.',
+            )
     except Exception as exc:  # noqa: BLE001
         messages.error(request, f'Failed to connect Google Calendar: {exc}')
     return redirect('tasks:settings')

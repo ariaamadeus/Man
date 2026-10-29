@@ -173,7 +173,9 @@ def check_and_notify_current_event():
         if not tasks.filter(completed=False).exists():
             continue
         schedule_settings = ScheduleSettings.get_for_user(user)
-        schedule_items, _ = build_schedule(tasks, schedule_settings, schedule_date=today)
+        schedule_items, _ = build_schedule(
+            tasks, schedule_settings, schedule_date=today, user=user
+        )
         current = get_current_event(today, schedule_items, now)
         if not current:
             continue

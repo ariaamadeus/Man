@@ -53,6 +53,7 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
+                'tasks.context_processors.ui_theme',
             ],
         },
     },
@@ -138,7 +139,11 @@ GOOGLE_REDIRECT_URI = os.environ.get(
     "",
 ).strip() or _gcal_file_redirect or "http://127.0.0.1:8000/google/callback/"
 GOOGLE_CREDENTIALS_FILE = str(BASE_DIR / "credentials.json")
-# Days pushed when you press "Update calendar". The app does not sync on its own.
+# Days pushed when you press "Update calendar". Pull uses the same window.
 GOOGLE_CALENDAR_SYNC_DAYS = int(os.environ.get("GOOGLE_CALENDAR_SYNC_DAYS", "7").strip() or "7")
 GOOGLE_CALENDAR_AUTO_SYNC_DAYS = int(os.environ.get("GOOGLE_CALENDAR_AUTO_SYNC_DAYS", "0").strip() or "0")
+# Minimum seconds between automatic Google Calendar pulls (home page / cron).
+GOOGLE_CALENDAR_PULL_INTERVAL_SECONDS = int(
+    os.environ.get("GOOGLE_CALENDAR_PULL_INTERVAL_SECONDS", "60").strip() or "60"
+)
 GOOGLE_CALENDAR_TIMEZONE = os.environ.get("GOOGLE_CALENDAR_TIMEZONE", "Asia/Jakarta").strip() or "Asia/Jakarta"

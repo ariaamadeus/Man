@@ -36,7 +36,8 @@ class TaskTimeLogAdmin(admin.ModelAdmin):
 
 @admin.register(ScheduleSettings)
 class ScheduleSettingsAdmin(admin.ModelAdmin):
-    list_display = ['user', 'work_start_hour', 'work_end_hour', 'break_interval_minutes', 'lunch_hour']
+    list_display = ['user', 'theme', 'work_start_hour', 'work_end_hour', 'break_interval_minutes', 'lunch_hour']
+    list_filter = ['theme']
 
 
 @admin.register(WhatsAppNotificationState)
